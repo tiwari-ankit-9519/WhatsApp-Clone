@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ChatType {
+  PRIVATE
+  GROUP
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  DOCUMENT
+  AUDIO
+}
+
+enum MessageStatusType {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum MessageDeleteType {
+  FOR_ME
+  FOR_EVERYONE
+}
+
+enum ContactStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+model User {
+  id                      String              @id @default(uuid())
+  name                    String
+  email                   String              @unique
+  password                String
+  profilePic              String?
+  online                  Boolean             @default(false)
+  lastSeen                DateTime?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  chats                   UsersOnChats[]
+  adminChats              AdminsOnChats[]
+  createdChats            Chat[]              @relation("CreatedChats")
+  messages                Message[]
+  messageStatuses         MessageStatus[]
+  sentContactRequests     Contact[]           @relation("SentContactRequests")
+  receivedContactRequests Contact[]           @relation("ReceivedContactRequests")
+  notifications           ChatNotification[]
+  deletedMessages         MessageDeletedFor[]
+  messageReactions        MessageReaction[]
+  devices                 UserDevice[]
+}
+
+model UserDevice {
+  id         String   @id @default(uuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  deviceId   String   @unique
+  deviceName String
+  lastActive DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Contact {
+  id         String        @id @default(uuid())
+  sender     User          @relation("SentContactRequests", fields: [senderId], references: [id])
+  senderId   String
+  receiver   User          @relation("ReceivedContactRequests", fields: [receiverId], references: [id])
+  receiverId String
+  status     ContactStatus @default(PENDING)
+  viewed     Boolean       @default(false)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([senderId, receiverId])
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+model Chat {
+  id            String             @id @default(uuid())
+  type          ChatType
+  name          String?
+  image         String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  createdBy     User?              @relation(name: "CreatedChats", fields: [createdById], references: [id])
+  createdById   String?
+  users         UsersOnChats[]
+  admins        AdminsOnChats[]
+  messages      Message[]
+  notifications ChatNotification[]
+
+  @@index([createdById])
+}
+
+model UsersOnChats {
+  user     User     @relation(fields: [userId], references: [id])
+  userId   String
+  chat     Chat     @relation(fields: [chatId], references: [id])
+  chatId   String
+  joinedAt DateTime @default(now())
+
+  @@id([userId, chatId])
+}
+
+model AdminsOnChats {
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  chat       Chat     @relation(fields: [chatId], references: [id])
+  chatId     String
+  assignedAt DateTime @default(now())
+
+  @@id([userId, chatId])
+}
+
+model Message {
+  id            String              @id @default(uuid())
+  type          MessageType
+  content       String
+  chat          Chat                @relation(fields: [chatId], references: [id])
+  chatId        String
+  sender        User                @relation(fields: [senderId], references: [id])
+  senderId      String
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  statuses      MessageStatus[]
+  deletedFor    MessageDeletedFor[]
+  reactions     MessageReaction[]
+  parentMessage Message?            @relation("MessageReplies", fields: [parentId], references: [id])
+  parentId      String?
+  replies       Message[]           @relation("MessageReplies")
+
+  @@index([chatId])
+  @@index([senderId])
+  @@index([parentId])
+}
+
+model MessageStatus {
+  id        String            @id @default(uuid())
+  message   Message           @relation(fields: [messageId], references: [id])
+  messageId String
+  user      User              @relation(fields: [userId], references: [id])
+  userId    String
+  status    MessageStatusType @default(SENT)
+  updatedAt DateTime          @updatedAt
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}
+
+model MessageDeletedFor {
+  id        String            @id @default(uuid())
+  message   Message           @relation(fields: [messageId], references: [id])
+  messageId String
+  user      User              @relation(fields: [userId], references: [id])
+  userId    String
+  type      MessageDeleteType
+  deletedAt DateTime          @default(now())
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@index([messageId])
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  message   Message  @relation(fields: [messageId], references: [id])
+  messageId String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+}
+
+model ChatNotification {
+  id          String   @id @default(uuid())
+  userId      String
+  chatId      String
+  unreadCount Int      @default(0)
+  lastReadAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+  chat Chat @relation(fields: [chatId], references: [id])
+
+  @@unique([userId, chatId])
+  @@index([userId])
+  @@index([chatId])
+}
