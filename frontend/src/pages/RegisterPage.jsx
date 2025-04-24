@@ -1,9 +1,9 @@
 /* eslint-disable no-unused-vars */
-import LoginForm from "@/components/auth/LoginForm";
+import RegisterForm from "@/components/auth/RegisterForm";
 import { motion } from "framer-motion";
 import { useTheme } from "@/components/theme-provider";
 
-const LoginPage = () => {
+const RegisterPage = () => {
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
@@ -62,7 +62,7 @@ const LoginPage = () => {
         transition={{ delay: 0.9, duration: 1 }}
       />
 
-      <LoginForm />
+      <RegisterForm />
       <BrandingSide />
     </div>
   );
@@ -175,13 +175,13 @@ const BrandingSide = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5, duration: 0.8 }}
             >
-              Welcome back
+              Join the conversation
             </motion.h1>
             <motion.p
               variants={itemVariants}
               className="text-sm lg:text-base text-white/80 mt-2"
             >
-              Continue your conversations
+              Connect with friends and family
             </motion.p>
           </div>
         </div>
@@ -221,17 +221,17 @@ const BrandingSide = () => {
                 transition={{ delay: 0.9, duration: 0.5 }}
               />
 
-              {/* Messaging visualization */}
+              {/* Profile setup visualization */}
               <motion.div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex space-x-2 items-center"
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
                 initial={{ scale: 0, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ delay: 1.1, duration: 0.6 }}
               >
-                <div className="h-10 w-10 lg:h-12 lg:w-12 rounded-full bg-white/30 border-2 border-white/30 flex items-center justify-center">
+                <div className="h-14 w-14 lg:h-16 lg:w-16 rounded-full bg-white/30 border-2 border-white/30 flex items-center justify-center mb-2">
                   <svg
-                    width="20"
-                    height="20"
+                    width="24"
+                    height="24"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="white"
@@ -244,39 +244,54 @@ const BrandingSide = () => {
                   </svg>
                 </div>
 
-                <div className="flex flex-col space-y-1">
+                <div className="flex space-x-2">
                   <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: 100 }}
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
                     transition={{ delay: 1.3, duration: 0.4 }}
-                    className="h-2 bg-white/40 rounded-full w-[100px]"
-                  ></motion.div>
+                    className={`h-5 w-5 lg:h-6 lg:w-6 rounded-full ${
+                      isDark ? "bg-teal-500" : "bg-white/60"
+                    } flex items-center justify-center`}
+                  >
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M20 6L9 17L4 12"></path>
+                    </svg>
+                  </motion.div>
                   <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: 80 }}
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
                     transition={{ delay: 1.5, duration: 0.4 }}
-                    className="h-2 bg-white/40 rounded-full w-[80px]"
-                  ></motion.div>
+                    className="h-5 w-5 lg:h-6 lg:w-6 rounded-full bg-white/30 flex items-center justify-center text-xs"
+                  >
+                    2
+                  </motion.div>
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ delay: 1.7, duration: 0.4 }}
+                    className="h-5 w-5 lg:h-6 lg:w-6 rounded-full bg-white/30 flex items-center justify-center text-xs"
+                  >
+                    3
+                  </motion.div>
                 </div>
-              </motion.div>
-
-              {/* Notification dot */}
-              <motion.div
-                className="absolute top-4 right-4 h-5 w-5 lg:h-6 lg:w-6 rounded-full bg-red-500 flex items-center justify-center text-white text-xs font-bold"
-                initial={{ scale: 0 }}
-                animate={{ scale: [0, 1.2, 1] }}
-                transition={{ delay: 1.7, duration: 0.5, times: [0, 0.6, 1] }}
-              >
-                5
               </motion.div>
             </div>
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent flex items-end">
               <div className="p-4">
                 <h3 className="text-white font-bold text-sm lg:text-base">
-                  Resume your chats
+                  Create your profile
                 </h3>
                 <p className="text-white/70 text-xs lg:text-sm">
-                  Pick up right where you left off
+                  Complete setup in just a few steps
                 </p>
               </div>
             </div>
@@ -285,14 +300,14 @@ const BrandingSide = () => {
 
         <div className="space-y-3 lg:space-y-4 mb-6 lg:mb-8">
           <h2 className="text-lg lg:text-xl font-semibold mb-2 lg:mb-3">
-            What's waiting for you:
+            Why join us today:
           </h2>
 
           {[
-            "Unread messages from your contacts",
-            "Recent group conversation updates",
-            "Shared media and documents",
-            "Missed calls and voicemails",
+            "Instant messaging with friends and family",
+            "Secure group conversations",
+            "Share photos, videos and documents",
+            "Voice and video calling features",
           ].map((feature, index) => (
             <motion.div
               key={index}
@@ -333,7 +348,7 @@ const BrandingSide = () => {
           variants={itemVariants}
         >
           <p className="text-white/60 text-xs lg:text-sm">
-            Sign in now to stay connected with your friends and family.
+            Sign up now to join millions of users already on our platform.
           </p>
         </motion.div>
       </motion.div>
@@ -341,4 +356,4 @@ const BrandingSide = () => {
   );
 };
 
-export default LoginPage;
+export default RegisterPage;
