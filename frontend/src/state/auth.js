@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const url = "https://whatsapp-clone-backend-production-b037.up.railway.app";
+// const url = "https://whatsapp-clone-backend-production-b037.up.railway.app";
+const url = "http://localhost:8080";
 export const registerUser = async (data) => {
   const result = await axios.post(`${url}/api/auth/register`, data);
   return result.data;

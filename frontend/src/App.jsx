@@ -11,7 +11,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import LandingPage from "./pages/LandingPage";
 import ChatsPage from "./pages/ChatsPage";
-import LoadingSpinner from "@/components/LoadingSpinner";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useEffect } from "react";
 
 // Create a React Query client with proper configuration
@@ -21,6 +21,7 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       retry: 1,
       staleTime: 5 * 60 * 1000, // 5 minutes
+      cacheTime: 10 * 60 * 1000, // 10 minutes
     },
   },
 });
@@ -36,7 +37,6 @@ function App() {
   );
 }
 
-// AuthNavigationHandler manages navigation based on auth state
 function AuthNavigationHandler() {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
@@ -53,16 +53,15 @@ function AuthNavigationHandler() {
     }
   }, [isAuthenticated, isLoading, location.pathname, navigate]);
 
+  return <AppRoutes isLoading={isLoading} />;
+}
+
+function AppRoutes({ isLoading }) {
+  const { isAuthenticated } = useAuth();
+
   if (isLoading) {
     return <LoadingSpinner />;
   }
-
-  return <AppRoutes />;
-}
-
-// App routes component
-function AppRoutes() {
-  const { isAuthenticated } = useAuth();
 
   return (
     <Routes>

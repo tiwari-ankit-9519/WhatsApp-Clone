@@ -1,10 +1,30 @@
-/* eslint-disable no-unused-vars */
-import { motion } from "framer-motion";
+// LoadingSpinner.jsx
 import { useTheme } from "@/components/theme-provider";
 
-const LoadingSpinner = () => {
+const LoadingSpinner = ({ fullScreen = true }) => {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+
+  if (!fullScreen) {
+    return (
+      <div className="flex justify-center items-center p-4">
+        <div className="flex flex-col items-center">
+          <div
+            className={`w-8 h-8 rounded-full ${
+              isDark ? "border-teal-400" : "border-teal-600"
+            } border-2 border-b-transparent animate-spin`}
+          ></div>
+          <p
+            className={`mt-2 text-sm ${
+              isDark ? "text-gray-300" : "text-gray-600"
+            }`}
+          >
+            Loading...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -15,12 +35,10 @@ const LoadingSpinner = () => {
       }`}
     >
       <div className="flex flex-col items-center">
-        <motion.div
+        <div
           className={`w-16 h-16 rounded-full ${
             isDark ? "bg-teal-900/50" : "bg-white/20"
           } backdrop-blur-sm flex items-center justify-center mb-4`}
-          animate={{ scale: [0.8, 1, 0.8] }}
-          transition={{ repeat: Infinity, duration: 1.5 }}
         >
           <svg
             className="w-8 h-8 text-white"
@@ -36,35 +54,20 @@ const LoadingSpinner = () => {
               strokeLinejoin="round"
             />
           </svg>
-        </motion.div>
+        </div>
 
         <div className="flex space-x-2">
-          <motion.div
-            className="h-2.5 w-2.5 rounded-full bg-white"
-            animate={{ scale: [0.5, 1, 0.5] }}
-            transition={{
-              repeat: Infinity,
-              duration: 1,
-              delay: 0,
-            }}
+          <div
+            className="h-2.5 w-2.5 rounded-full bg-white animate-bounce"
+            style={{ animationDelay: "0ms" }}
           />
-          <motion.div
-            className="h-2.5 w-2.5 rounded-full bg-white"
-            animate={{ scale: [0.5, 1, 0.5] }}
-            transition={{
-              repeat: Infinity,
-              duration: 1,
-              delay: 0.2,
-            }}
+          <div
+            className="h-2.5 w-2.5 rounded-full bg-white animate-bounce"
+            style={{ animationDelay: "200ms" }}
           />
-          <motion.div
-            className="h-2.5 w-2.5 rounded-full bg-white"
-            animate={{ scale: [0.5, 1, 0.5] }}
-            transition={{
-              repeat: Infinity,
-              duration: 1,
-              delay: 0.4,
-            }}
+          <div
+            className="h-2.5 w-2.5 rounded-full bg-white animate-bounce"
+            style={{ animationDelay: "400ms" }}
           />
         </div>
 
