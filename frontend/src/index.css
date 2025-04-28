@@ -1,4 +1,4 @@
-@import url(https://fonts.googleapis.com/css?family=Open+Sans:300,regular,500,600,700,800,300italic,italic,500italic,600italic,700italic,800italic);
+@import url(https://fonts.googleapis.com/css?family=Inter:100,200,300,regular,500,600,700,800,900,100italic,200italic,300italic,italic,500italic,600italic,700italic,800italic,900italic);
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -121,5 +121,37 @@
 }
 
 body {
-  font-family: 'Open Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
 }
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: linear-gradient(135deg, #1e1e2f, #2e2e4f);
+  border-radius: 10px;
+  margin: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #6e8efb, #a777e3);
+  border-radius: 10px;
+  border: 2px solid #1e1e2f;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #5a7bfd, #9d5de3);
+}
+
+::-webkit-scrollbar-corner {
+  background: #1e1e2f;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #6e8efb #1e1e2f;
+}
+
+

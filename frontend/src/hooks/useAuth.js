@@ -44,7 +44,7 @@ export function useAuth() {
       setIsAuthenticated(true);
       initializeSocket(data.token);
       toast.success(data.message || "Login successful");
-      navigate("/");
+      navigate("/chats");
     },
     onError: (error) => {
       toast.error(error.response?.data?.message || "Login failed");
