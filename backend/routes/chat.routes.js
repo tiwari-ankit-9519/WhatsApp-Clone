@@ -11,6 +11,8 @@ import {
   deleteMessage,
   reactToMessage,
   getMessageReplies,
+  searchMessages,
+  getMessageContext,
 } from "../controllers/chat.controller.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { upload } from "../config/fileUpload.js";
