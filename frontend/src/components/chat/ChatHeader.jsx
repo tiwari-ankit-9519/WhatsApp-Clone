@@ -3,9 +3,20 @@ import React from "react";
 import { useTheme } from "../../components/theme-provider";
 import { useChat } from "../../context/ChatContext";
 import { useAuth } from "../../context/AuthContext";
-import Avatar from "../ui/Avatar";
-import DropdownMenu from "../ui/DropdownMenu";
+import Avatar from "../ui/AvatarIcon";
+import CustomDropdownMenu from "../ui/DropdownMenu";
 import StatusBar from "./StatusBar";
+import {
+  Info,
+  UserPlus,
+  Search as SearchIcon,
+  Bell,
+  Trash2,
+  LogOut,
+  Ban,
+  MoreVertical,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const ChatHeader = ({ chat }) => {
   const { theme } = useTheme();
@@ -15,10 +26,8 @@ const ChatHeader = ({ chat }) => {
 
   if (!chat) return null;
 
-  // Determine if this is a group or private chat
   const isGroup = chat.type === "GROUP";
 
-  // Get the other user for private chats
   let displayName = chat.name;
   let avatarUrl = chat.image;
   let isOnline = false;
@@ -34,32 +43,87 @@ const ChatHeader = ({ chat }) => {
     }
   }
 
-  // Check if someone is typing
   const typingUserIds = typingUsers[chat.id] || [];
   const isTyping = typingUserIds.length > 0;
 
-  // Menu options
   const menuItems = [
     ...(isGroup
       ? [
-          { label: "Group info", action: () => console.log("View group info") },
+          {
+            label: "Group info",
+            icon: (
+              <Info
+                className={`w-4 h-4 ${
+                  isDark ? "text-gray-400" : "text-gray-600"
+                }`}
+              />
+            ),
+            action: () => console.log("View group info"),
+          },
           {
             label: "Add participants",
+            icon: (
+              <UserPlus
+                className={`w-4 h-4 ${
+                  isDark ? "text-gray-400" : "text-gray-600"
+                }`}
+              />
+            ),
             action: () => console.log("Add participants"),
           },
         ]
-      : [{ label: "View contact", action: () => console.log("View contact") }]),
-    { label: "Search messages", action: () => console.log("Search messages") },
+      : [
+          {
+            label: "View contact",
+            icon: (
+              <Info
+                className={`w-4 h-4 ${
+                  isDark ? "text-gray-400" : "text-gray-600"
+                }`}
+              />
+            ),
+            action: () => console.log("View contact"),
+          },
+        ]),
+    {
+      label: "Search messages",
+      icon: (
+        <SearchIcon
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
+      action: () => console.log("Search messages"),
+    },
     {
       label: "Mute notifications",
+      icon: (
+        <Bell
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
       action: () => console.log("Mute notifications"),
     },
-    { label: "Clear messages", action: () => console.log("Clear messages") },
+    {
+      label: "Clear messages",
+      icon: (
+        <Trash2
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
+      action: () => console.log("Clear messages"),
+    },
     ...(isGroup
-      ? [{ label: "Exit group", action: () => console.log("Exit group") }]
+      ? [
+          {
+            label: "Exit group",
+            icon: <LogOut className="w-4 h-4 text-red-500" />,
+            action: () => console.log("Exit group"),
+          },
+        ]
       : [
           {
             label: "Block contact",
+            icon: <Ban className="w-4 h-4 text-red-500" />,
             action: () => console.log("Block contact"),
           },
         ]),
@@ -98,37 +162,24 @@ const ChatHeader = ({ chat }) => {
 
       <div className="flex items-center">
         {/* Search button */}
-        <button
-          className={`p-2 rounded-full ${
-            isDark
-              ? "text-gray-300 hover:bg-gray-700"
-              : "text-gray-600 hover:bg-gray-100"
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`rounded-full ${
+            isDark ? "hover:bg-gray-700" : "hover:bg-gray-100"
           }`}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
-        </button>
+          <SearchIcon className="h-5 w-5" />
+        </Button>
 
         {/* More options dropdown */}
-        <DropdownMenu
+        <CustomDropdownMenu
           items={menuItems}
-          buttonClass={`p-2 rounded-full ${
-            isDark
-              ? "text-gray-300 hover:bg-gray-700"
-              : "text-gray-600 hover:bg-gray-100"
+          buttonIcon={<MoreVertical className="h-5 w-5" />}
+          buttonClass={`rounded-full ${
+            isDark ? "hover:bg-gray-700" : "hover:bg-gray-100"
           }`}
+          align="end"
         />
       </div>
     </div>

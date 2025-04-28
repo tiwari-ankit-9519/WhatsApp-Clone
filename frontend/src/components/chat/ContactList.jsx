@@ -19,7 +19,6 @@ const ContactList = ({ onContactClick, searchQuery }) => {
   const [searchMode, setSearchMode] = useState(false);
   const queryClient = useQueryClient();
 
-  // Get search results when searchQuery is not empty
   const { data: searchResults, isLoading: isSearching } = useQuery({
     queryKey: ["userSearch", searchQuery],
     queryFn: () => searchUsers(searchQuery),
@@ -27,7 +26,6 @@ const ContactList = ({ onContactClick, searchQuery }) => {
     staleTime: 1000 * 60, // 1 minute
   });
 
-  // Accept contact request mutation
   const acceptMutation = useMutation({
     mutationFn: acceptContactRequest,
     onSuccess: () => {
@@ -37,7 +35,6 @@ const ContactList = ({ onContactClick, searchQuery }) => {
     },
   });
 
-  // Reject contact request mutation
   const rejectMutation = useMutation({
     mutationFn: rejectContactRequest,
     onSuccess: () => {
@@ -45,7 +42,6 @@ const ContactList = ({ onContactClick, searchQuery }) => {
     },
   });
 
-  // Send contact request mutation
   const sendRequestMutation = useMutation({
     mutationFn: sendContactRequest,
     onSuccess: () => {
@@ -53,22 +49,18 @@ const ContactList = ({ onContactClick, searchQuery }) => {
     },
   });
 
-  // Handle accepting a contact request
   const handleAcceptRequest = (contactId) => {
     acceptMutation.mutate(contactId);
   };
 
-  // Handle rejecting a contact request
   const handleRejectRequest = (contactId) => {
     rejectMutation.mutate(contactId);
   };
 
-  // Handle sending a contact request
   const handleSendRequest = (userId) => {
     sendRequestMutation.mutate(userId);
   };
 
-  // Filter contacts based on search query
   const filteredContacts = contacts.filter((contact) => {
     if (!searchQuery) return true;
     return contact.receiver.name
@@ -76,20 +68,16 @@ const ContactList = ({ onContactClick, searchQuery }) => {
       .includes(searchQuery.toLowerCase());
   });
 
-  // Sort contacts alphabetically
   const sortedContacts = [...filteredContacts].sort((a, b) => {
     return a.receiver.name.localeCompare(b.receiver.name);
   });
 
-  // Determine if we should show search results based on query length
   const showSearchResults = searchQuery.length >= 2;
 
-  // Format search results to filter out existing contacts
   const formattedSearchResults = searchResults?.users || [];
 
   return (
     <div className="h-full">
-      {/* Pending contact requests section */}
       {pendingRequests.length > 0 && !showSearchResults && (
         <div className={`px-4 py-2 ${isDark ? "bg-gray-700" : "bg-gray-100"}`}>
           <h3
@@ -119,7 +107,6 @@ const ContactList = ({ onContactClick, searchQuery }) => {
         </div>
       )}
 
-      {/* Contacts section header */}
       {!showSearchResults && (
         <div className={`px-4 py-2 ${isDark ? "bg-gray-700" : "bg-gray-100"}`}>
           <h3
@@ -132,7 +119,6 @@ const ContactList = ({ onContactClick, searchQuery }) => {
         </div>
       )}
 
-      {/* Search results header */}
       {showSearchResults && (
         <div className={`px-4 py-2 ${isDark ? "bg-gray-700" : "bg-gray-100"}`}>
           <h3
@@ -147,7 +133,6 @@ const ContactList = ({ onContactClick, searchQuery }) => {
         </div>
       )}
 
-      {/* Contact list or search results */}
       <div
         className={`divide-y ${isDark ? "divide-gray-700" : "divide-gray-200"}`}
       >
@@ -179,8 +164,7 @@ const ContactList = ({ onContactClick, searchQuery }) => {
                 : "Type to search for users"}
             </div>
           )
-        ) : // Display contacts
-        sortedContacts.length > 0 ? (
+        ) : sortedContacts.length > 0 ? (
           sortedContacts.map((contact) => (
             <ContactListItem
               key={contact.id}
@@ -189,7 +173,6 @@ const ContactList = ({ onContactClick, searchQuery }) => {
             />
           ))
         ) : (
-          // No contacts
           <div
             className={`p-4 text-center ${
               isDark ? "text-gray-400" : "text-gray-500"

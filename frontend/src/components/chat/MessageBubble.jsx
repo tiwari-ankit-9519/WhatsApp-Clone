@@ -1,7 +1,9 @@
+/* eslint-disable no-unused-vars */
 import React, { useState, useRef, useEffect } from "react";
 import { useTheme } from "../../components/theme-provider";
 import { useChat } from "../../context/ChatContext";
-import Avatar from "../ui/Avatar";
+import { useAuth } from "../../context/AuthContext";
+import Avatar from "../ui/AvatarIcon";
 import { formatMessageTime } from "../../lib/utils";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { reactToMessage, deleteMessage } from "../../state/chat";
@@ -17,34 +19,217 @@ const MessageBubble = ({
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const { activeChat } = useChat();
+  const { user } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const menuRef = useRef(null);
   const buttonRef = useRef(null);
   const messageRef = useRef(null);
   const queryClient = useQueryClient();
 
-  // Mutations for deleting messages
+  // Mutations for deleting messages with optimistic update
   const deleteMutation = useMutation({
     mutationFn: ({ messageId, deleteType }) =>
       deleteMessage(messageId, deleteType),
-    onSuccess: () => {
-      queryClient.invalidateQueries(["messages", activeChat?.id]);
+    onMutate: async ({ messageId, deleteType }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries(["messages", activeChat?.id]);
+
+      // Snapshot the previous value
+      const previousMessages = queryClient.getQueryData([
+        "messages",
+        activeChat?.id,
+      ]);
+
+      // Optimistically update the cache
+      queryClient.setQueryData(["messages", activeChat?.id], (old) => {
+        if (!old) return old;
+
+        // Handle paginated data
+        if (old.pages) {
+          const updatedPages = old.pages.map((page) => ({
+            ...page,
+            messages: page.messages.filter((msg) => msg.id !== messageId),
+          }));
+          return { ...old, pages: updatedPages };
+        }
+
+        // Handle non-paginated data
+        if (old.messages) {
+          return {
+            ...old,
+            messages: old.messages.filter((msg) => msg.id !== messageId),
+          };
+        }
+
+        return old;
+      });
+
+      // Return context with previous messages
+      return { previousMessages };
     },
-    onError: (error) => {
-      console.error("Delete error:", error);
+    onError: (err, variables, context) => {
+      // Roll back on error
+      if (context?.previousMessages) {
+        queryClient.setQueryData(
+          ["messages", activeChat?.id],
+          context.previousMessages
+        );
+      }
+      console.error("Delete error:", err);
+    },
+    onSettled: () => {
+      // Always refetch after error or success
+      queryClient.invalidateQueries(["messages", activeChat?.id]);
     },
   });
 
-  // Mutation for reacting to messages
+  // Mutation for reacting to messages with optimistic update
   const reactionMutation = useMutation({
     mutationFn: ({ messageId, emoji }) => reactToMessage(messageId, emoji),
-    onSuccess: () => {
+    onMutate: async ({ messageId, emoji }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries(["messages", activeChat?.id]);
+
+      // Snapshot the previous value
+      const previousMessages = queryClient.getQueryData([
+        "messages",
+        activeChat?.id,
+      ]);
+
+      // Optimistically update the cache
+      queryClient.setQueryData(["messages", activeChat?.id], (old) => {
+        if (!old) return old;
+
+        // Find the message and update its reactions
+        const messages =
+          old.pages?.flatMap((page) => page.messages || []) ||
+          old.messages ||
+          [];
+        const messageIndex = messages.findIndex((msg) => msg.id === messageId);
+
+        if (messageIndex === -1) return old;
+
+        const message = messages[messageIndex];
+        const existingReactionIndex =
+          message.reactions?.findIndex(
+            (r) => r.userId === user?.id && r.emoji === emoji
+          ) ?? -1;
+
+        let updatedReactions;
+        if (existingReactionIndex > -1) {
+          // Remove reaction
+          updatedReactions = message.reactions.filter(
+            (_, index) => index !== existingReactionIndex
+          );
+        } else {
+          // Add reaction
+          const newReaction = {
+            id: `temp-${Date.now()}`,
+            userId: user?.id,
+            user: user,
+            emoji: emoji,
+            messageId: messageId,
+            createdAt: new Date().toISOString(),
+          };
+          updatedReactions = [...(message.reactions || []), newReaction];
+        }
+
+        // Update the message with new reactions
+        const updatedMessage = { ...message, reactions: updatedReactions };
+        const updatedMessages = [...messages];
+        updatedMessages[messageIndex] = updatedMessage;
+
+        // Return updated data structure
+        if (old.pages) {
+          // Handle paginated data
+          const updatedPages = old.pages.map((page) => ({
+            ...page,
+            messages: page.messages.map((msg) =>
+              msg.id === messageId ? updatedMessage : msg
+            ),
+          }));
+          return { ...old, pages: updatedPages };
+        } else {
+          // Handle simple data structure
+          return { ...old, messages: updatedMessages };
+        }
+      });
+
+      // Return context with previous messages
+      return { previousMessages };
+    },
+    onError: (err, variables, context) => {
+      // Roll back on error
+      queryClient.setQueryData(
+        ["messages", activeChat?.id],
+        context.previousMessages
+      );
+      console.error("Reaction error:", err);
+    },
+    onSettled: () => {
+      // Always refetch after error or success
       queryClient.invalidateQueries(["messages", activeChat?.id]);
     },
-    onError: (error) => {
-      console.error("Reaction error:", error);
-    },
   });
+
+  const DeleteDialog = () => {
+    if (!showDeleteDialog) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div
+          className={`rounded-lg p-6 w-80 ${
+            isDark ? "bg-gray-800 text-white" : "bg-white text-gray-900"
+          }`}
+        >
+          <h3 className="text-lg font-semibold mb-4">Delete message?</h3>
+          <div className="space-y-3">
+            <button
+              className={`w-full py-2 px-4 rounded-lg text-left ${
+                isDark ? "hover:bg-gray-700" : "hover:bg-gray-100"
+              }`}
+              onClick={() => {
+                deleteMutation.mutate({
+                  messageId: message.id,
+                  deleteType: "FOR_EVERYONE",
+                });
+                setShowDeleteDialog(false);
+                setShowMenu(false);
+              }}
+            >
+              Delete for everyone
+            </button>
+            <button
+              className={`w-full py-2 px-4 rounded-lg text-left ${
+                isDark ? "hover:bg-gray-700" : "hover:bg-gray-100"
+              }`}
+              onClick={() => {
+                deleteMutation.mutate({
+                  messageId: message.id,
+                  deleteType: "FOR_ME",
+                });
+                setShowDeleteDialog(false);
+                setShowMenu(false);
+              }}
+            >
+              Delete for me
+            </button>
+            <button
+              className={`w-full py-2 px-4 rounded-lg text-center font-medium ${
+                isDark
+                  ? "bg-gray-700 hover:bg-gray-600"
+                  : "bg-gray-100 hover:bg-gray-200"
+              }`}
+              onClick={() => setShowDeleteDialog(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -252,13 +437,18 @@ const MessageBubble = ({
           <button
             key={emoji}
             className={`
-              flex items-center px-1.5 py-0.5 rounded-full text-xs
-              ${
-                isDark
-                  ? "bg-gray-700 hover:bg-gray-600"
-                  : "bg-gray-200 hover:bg-gray-300"
-              }
-            `}
+            flex items-center px-1.5 py-0.5 rounded-full text-xs
+            ${
+              isDark
+                ? "bg-gray-700 hover:bg-gray-600"
+                : "bg-gray-200 hover:bg-gray-300"
+            }
+            ${
+              reactions.some((r) => r.userId === user?.id)
+                ? "ring-1 ring-blue-500"
+                : ""
+            }
+          `}
             onClick={() =>
               reactionMutation.mutate({ messageId: message.id, emoji })
             }
@@ -278,37 +468,24 @@ const MessageBubble = ({
       return;
     }
 
-    console.log(`Reacting with ${emoji} to message ID: ${message.id}`);
-
-    try {
-      reactionMutation.mutate({
-        messageId: message.id,
-        emoji,
-      });
-    } catch (error) {
-      console.error("Error in reaction handler:", error);
-    }
+    reactionMutation.mutate({
+      messageId: message.id,
+      emoji,
+    });
 
     setShowMenu(false);
   };
 
-  // Handler for reply button
+  // Handler for reply button - call the global function
   const handleReplyClick = () => {
     if (!message || !message.id) {
       console.error("Cannot reply to message - missing message ID", message);
       return;
     }
 
-    console.log(`Replying to message ID: ${message.id}`);
-
-    try {
-      if (onReply && typeof onReply === "function") {
-        onReply(message);
-      } else {
-        console.error("Reply handler is not available", onReply);
-      }
-    } catch (error) {
-      console.error("Error in reply handler:", error);
+    // Call the global function if it exists
+    if (window.setParentMessage) {
+      window.setParentMessage(message);
     }
 
     setShowMenu(false);
@@ -321,18 +498,7 @@ const MessageBubble = ({
       return;
     }
 
-    console.log(`Deleting message ID: ${message.id}`);
-
-    try {
-      deleteMutation.mutate({
-        messageId: message.id,
-        deleteType: "FOR_EVERYONE",
-      });
-    } catch (error) {
-      console.error("Error in delete handler:", error);
-    }
-
-    setShowMenu(false);
+    setShowDeleteDialog(true);
   };
 
   const renderParentMessage = () => {
@@ -340,23 +506,54 @@ const MessageBubble = ({
 
     return (
       <div
+        onClick={() => {
+          // Optionally add scroll to parent message functionality
+          // if (message.parentMessage.id) {
+          //   const parentElement = document.getElementById(`message-${message.parentMessage.id}`);
+          //   if (parentElement) {
+          //     parentElement.scrollIntoView({ behavior: "smooth", block: "center" });
+          //   }
+          // }
+        }}
         className={`
-          px-3 py-1.5 mb-1 rounded-lg text-sm opacity-80
-          ${isDark ? "bg-gray-700" : "bg-gray-200"}
-        `}
+        px-3 py-2 mb-1.5 rounded-lg text-sm cursor-pointer
+        transition-all duration-200 ease-in-out
+        hover:opacity-90
+        ${
+          isOwnMessage
+            ? isDark
+              ? "bg-[#00483D] border-l-[3px] border-[#009688]"
+              : "bg-[#CCE9CE] border-l-[3px] border-[#4CAF50]"
+            : isDark
+            ? "bg-[#1A2428] border-l-[3px] border-[#009688]"
+            : "bg-gray-100 border-l-[3px] border-[#4CAF50]"
+        }
+      `}
       >
-        <div className="flex items-center">
+        <div className="flex items-center mb-1">
           <span
-            className={`font-medium ${
+            className={`font-medium text-xs ${
               isDark ? "text-teal-400" : "text-teal-600"
             }`}
           >
             {message.parentMessage.sender.name}
           </span>
         </div>
-        <p className="truncate">
+        <p
+          className={`text-xs line-clamp-2 ${
+            isDark ? "text-gray-300" : "text-gray-700"
+          }`}
+        >
           {message.parentMessage.type === "TEXT"
             ? message.parentMessage.content
+            : message.parentMessage.type === "IMAGE"
+            ? "📷 Photo"
+            : message.parentMessage.type === "VIDEO"
+            ? "🎥 Video"
+            : message.parentMessage.type === "AUDIO"
+            ? "🎵 Audio"
+            : message.parentMessage.type === "DOCUMENT"
+            ? "📄 Document"
             : `[${message.parentMessage.type.toLowerCase()}]`}
         </p>
       </div>
@@ -369,211 +566,169 @@ const MessageBubble = ({
     message.id?.toString().startsWith("temp-") ||
     message.statuses?.some((s) => s.status === "SENDING");
 
-  // Debug data for the message
-  const messageDebugId = message?.id || "unknown";
-  console.debug(
-    `Rendering message bubble ID: ${messageDebugId}, isOwn: ${isOwnMessage}`
-  );
-
   return (
-    <div
-      ref={messageRef}
-      className={`
+    <>
+      <div
+        ref={messageRef}
+        className={`
         flex items-start group mb-0.5 relative
         ${isOwnMessage ? "justify-end" : "justify-start"}
         ${isConsecutive && !isOwnMessage ? "pl-12" : ""}
       `}
-    >
-      {!isOwnMessage && showAvatar && (
-        <div className="flex-shrink-0 mr-2">
-          <Avatar
-            src={message.sender.profilePic}
-            alt={message.sender.name}
-            size="sm"
-          />
-        </div>
-      )}
-
-      {!isOwnMessage && !showAvatar && <div className="w-8 mr-2"></div>}
-
-      <div
-        className={`
-          relative max-w-[70%] 
-          ${message.parentMessage ? "pt-0" : "pt-0"}
-          ${isMessagePending ? "opacity-80" : ""}
-        `}
       >
-        {!isOwnMessage && !isConsecutive && (
-          <div className="text-xs font-medium mb-1 text-green-500">
-            {message.sender.name}
+        {!isOwnMessage && showAvatar && (
+          <div className="flex-shrink-0 mr-2">
+            <Avatar
+              src={message.sender.profilePic}
+              alt={message.sender.name}
+              size="sm"
+            />
           </div>
         )}
 
-        {renderParentMessage()}
+        {!isOwnMessage && !showAvatar && <div className="w-8 mr-2"></div>}
 
         <div
           className={`
-            relative py-[6px] px-[9px] shadow-sm
-            ${
-              isOwnMessage
-                ? isDark
-                  ? "bg-[#005C4B] text-white rounded-tl-lg rounded-tr-md rounded-br-md rounded-bl-lg"
-                  : "bg-[#E1FFC7] text-black rounded-tl-lg rounded-tr-md rounded-br-md rounded-bl-lg"
-                : isDark
-                ? "bg-[#1F2C34] text-white rounded-tr-lg rounded-tl-md rounded-bl-md rounded-br-lg"
-                : "bg-white text-black rounded-tr-lg rounded-tl-md rounded-bl-md rounded-br-lg"
-            }
-          `}
+        relative max-w-[70%] 
+        ${isMessagePending ? "opacity-80" : ""}
+      `}
         >
-          {renderMessageContent()}
-
-          <div className="flex justify-end items-center mt-[2px] space-x-[2px]">
-            <span
-              className={`text-[11px] ${
-                isOwnMessage
-                  ? isDark
-                    ? "text-white/50"
-                    : "text-black/50"
-                  : isDark
-                  ? "text-white/50"
-                  : "text-black/50"
+          {!isOwnMessage && !isConsecutive && (
+            <div
+              className={`text-xs font-medium mb-1 ${
+                isDark ? "text-teal-400" : "text-teal-600"
               }`}
             >
-              {messageTime}
-            </span>
-            {getStatusIndicator()}
-          </div>
-        </div>
-
-        {renderReactions()}
-
-        {/* Three-dots menu button */}
-        {!isMessagePending && (
-          <button
-            ref={buttonRef}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              console.log("Three dot menu clicked for message:", message.id);
-              setShowMenu(!showMenu);
-            }}
-            className={`
-              absolute top-2 z-10
-              ${
-                isOwnMessage
-                  ? "left-0 -translate-x-[28px]"
-                  : "right-0 translate-x-[28px]"
-              }
-              w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity
-              ${
-                isDark
-                  ? "bg-gray-700 hover:bg-gray-600"
-                  : "bg-gray-200 hover:bg-gray-300"
-              }
-            `}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-            </svg>
-          </button>
-        )}
-
-        {/* Popup Menu */}
-        {showMenu && (
-          <div
-            ref={menuRef}
-            className={`
-              absolute z-50 w-[210px] p-2 rounded-lg shadow-lg
-              ${isDark ? "bg-gray-800" : "bg-white"}
-              ${isOwnMessage ? "right-0 -top-24" : "left-0 -top-24"}
-            `}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          >
-            {/* Emoji Reaction Grid */}
-            <div className="grid grid-cols-6 gap-1 p-1">
-              {["👍", "❤️", "😂", "😲", "😢", "🙏"].map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  className="flex flex-col items-center justify-center p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log(
-                      `Clicked emoji ${emoji} for message:`,
-                      message.id
-                    );
-                    handleReaction(emoji);
-                  }}
-                >
-                  <span className="text-xl">{emoji}</span>
-                </button>
-              ))}
+              {message.sender.name}
             </div>
+          )}
 
-            <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+          {renderParentMessage()}
 
-            {/* Action Buttons */}
-            <div className="p-1 flex flex-col">
-              <button
-                type="button"
-                className={`
-                  flex items-center w-full py-2 px-3 text-sm rounded-md
-                  ${
-                    isDark
-                      ? "hover:bg-gray-700 text-white"
-                      : "hover:bg-gray-100 text-gray-700"
-                  }
-                `}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  console.log("Reply button clicked for message:", message.id);
-                  handleReplyClick();
-                }}
+          <div
+            className={`
+          relative py-[6px] px-[9px] shadow-sm
+          ${message.parentMessage ? "pt-2" : ""}
+          ${
+            isOwnMessage
+              ? isDark
+                ? "bg-[#005C4B] text-white rounded-tl-lg rounded-tr-md rounded-br-md rounded-bl-lg"
+                : "bg-[#E1FFC7] text-black rounded-tl-lg rounded-tr-md rounded-br-md rounded-bl-lg"
+              : isDark
+              ? "bg-[#1F2C34] text-white rounded-tr-lg rounded-tl-md rounded-bl-md rounded-br-lg"
+              : "bg-white text-black rounded-tr-lg rounded-tl-md rounded-bl-md rounded-br-lg"
+          }
+          ${message.parentMessage ? "" : ""}
+        `}
+          >
+            {renderMessageContent()}
+
+            <div className="flex justify-end items-center mt-[2px] space-x-[2px]">
+              <span
+                className={`text-[11px] ${
+                  isOwnMessage
+                    ? isDark
+                      ? "text-white/50"
+                      : "text-black/50"
+                    : isDark
+                    ? "text-white/50"
+                    : "text-black/50"
+                }`}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5 mr-3"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                Reply
-              </button>
+                {messageTime}
+              </span>
+              {getStatusIndicator()}
+            </div>
+          </div>
 
-              {isOwnMessage && (
+          {renderReactions()}
+
+          {/* Three-dots menu button */}
+          {!isMessagePending && (
+            <button
+              ref={buttonRef}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowMenu(!showMenu);
+              }}
+              className={`
+            absolute top-2 z-10
+            ${
+              isOwnMessage
+                ? "left-0 -translate-x-[28px]"
+                : "right-0 translate-x-[28px]"
+            }
+            w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity
+            ${
+              isDark
+                ? "bg-gray-700 hover:bg-gray-600"
+                : "bg-gray-200 hover:bg-gray-300"
+            }
+          `}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+              </svg>
+            </button>
+          )}
+
+          {/* Popup Menu */}
+          {showMenu && (
+            <div
+              ref={menuRef}
+              className={`
+            absolute z-50 w-[210px] p-2 rounded-lg shadow-lg
+            ${isDark ? "bg-gray-800" : "bg-white"}
+            ${isOwnMessage ? "right-0 -top-24" : "left-0 -top-24"}
+          `}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            >
+              {/* Emoji Reaction Grid */}
+              <div className="grid grid-cols-6 gap-1 p-1">
+                {["👍", "❤️", "😂", "😲", "😢", "🙏"].map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    className="flex flex-col items-center justify-center p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleReaction(emoji);
+                    }}
+                  >
+                    <span className="text-xl">{emoji}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+
+              {/* Action Buttons */}
+              <div className="p-1 flex flex-col">
                 <button
                   type="button"
                   className={`
-                    flex items-center w-full py-2 px-3 text-sm rounded-md
-                    ${
-                      isDark
-                        ? "hover:bg-gray-700 text-red-400"
-                        : "hover:bg-gray-100 text-red-600"
-                    }
-                  `}
+                flex items-center w-full py-2 px-3 text-sm rounded-md
+                ${
+                  isDark
+                    ? "hover:bg-gray-700 text-white"
+                    : "hover:bg-gray-100 text-gray-700"
+                }
+              `}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    console.log(
-                      "Delete button clicked for message:",
-                      message.id
-                    );
-                    handleDeleteClick();
+                    handleReplyClick();
                   }}
                 >
                   <svg
@@ -584,18 +739,52 @@ const MessageBubble = ({
                   >
                     <path
                       fillRule="evenodd"
-                      d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                      d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
                       clipRule="evenodd"
                     />
                   </svg>
-                  Delete
+                  Reply
                 </button>
-              )}
+
+                {isOwnMessage && (
+                  <button
+                    type="button"
+                    className={`
+                  flex items-center w-full py-2 px-3 text-sm rounded-md
+                  ${
+                    isDark
+                      ? "hover:bg-gray-700 text-red-400"
+                      : "hover:bg-gray-100 text-red-600"
+                  }
+                `}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleDeleteClick();
+                    }}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-5 w-5 mr-3"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+        <DeleteDialog />
       </div>
-    </div>
+    </>
   );
 };
 

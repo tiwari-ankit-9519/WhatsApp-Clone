@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import React from "react";
 import { useTheme } from "../../components/theme-provider";
-import Avatar from "../ui/Avatar";
+import Avatar from "../ui/AvatarIcon";
 import { formatRelativeTime } from "../../lib/utils";
 
 const ChatListItem = ({

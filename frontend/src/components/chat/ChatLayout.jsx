@@ -1,3 +1,4 @@
+// ChatLayout.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useChat } from "../../context/ChatContext";
@@ -15,14 +16,19 @@ import {
   getAllNotificationCounts,
   markContactRequestsViewed,
 } from "../../state/chat";
-import Avatar from "@/components/ui/Avatar";
-import DropdownMenu from "@/components/ui/DropdownMenu";
+import Avatar from "@/components/ui/AvatarIcon";
+import CustomDropdownMenu from "@/components/ui/DropdownMenu";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { User, Settings, LogOut } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
-const ChatLayout = ({ chatId }) => {
+const ChatLayout = ({ chatId, children, showChatArea = true }) => {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const { activeChat, selectChat, clearChat } = useChat();
   const [isLoadingChat, setIsLoadingChat] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [activeView, setActiveView] = useState("chats");
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
@@ -32,9 +38,7 @@ const ChatLayout = ({ chatId }) => {
     queryKey: ["notifications"],
     queryFn: getAllNotificationCounts,
     refetchInterval: 10000,
-    // Prevent refetch on window focus
     refetchOnWindowFocus: false,
-    // Show previous data while fetching
     keepPreviousData: true,
   });
 
@@ -72,28 +76,65 @@ const ChatLayout = ({ chatId }) => {
     setSearchQuery(e.target.value);
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate("/login");
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      navigate("/login");
+    } catch (error) {
+      console.error("Error logging out:", error);
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   const profileMenuItems = [
-    { label: "Profile", action: () => navigate("/profile") },
-    { label: "Settings", action: () => navigate("/settings") },
-    { label: "Logout", action: handleLogout },
+    {
+      label: "Profile",
+      icon: (
+        <User
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
+      action: () => {
+        clearChat();
+        navigate("/chats/profile");
+      },
+    },
+    {
+      label: "Settings",
+      icon: (
+        <Settings
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
+      action: () => {
+        clearChat();
+        navigate("/chats/settings");
+      },
+    },
+    {
+      label: isLoggingOut ? "Logging out..." : "Logout",
+      icon: isLoggingOut ? (
+        <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+      ) : (
+        <LogOut className="w-4 h-4 text-red-500" />
+      ),
+      action: handleLogout,
+      disabled: isLoggingOut,
+    },
   ];
 
-  // Determine what to render in the main chat area
   const renderChatArea = () => {
     if (chatId && isLoadingChat) {
       return (
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center">
-            <div
-              className={`w-8 h-8 rounded-full ${
-                isDark ? "border-teal-400" : "border-teal-600"
-              } border-2 border-b-transparent animate-spin`}
-            ></div>
+            <Loader2
+              className={`w-8 h-8 animate-spin ${
+                isDark ? "text-teal-400" : "text-teal-600"
+              }`}
+            />
             <p
               className={`mt-2 text-sm ${
                 isDark ? "text-gray-300" : "text-gray-600"
@@ -117,6 +158,20 @@ const ChatLayout = ({ chatId }) => {
     }
 
     return <EmptyChat />;
+  };
+
+  const renderMainContent = () => {
+    // If we have children (Profile/Settings page), render them
+    if (children) {
+      return children;
+    }
+
+    // Otherwise, render the chat area
+    if (showChatArea) {
+      return renderChatArea();
+    }
+
+    return null;
   };
 
   return (
@@ -152,15 +207,14 @@ const ChatLayout = ({ chatId }) => {
                 {user?.name}
               </span>
             </div>
-            <DropdownMenu
+            <CustomDropdownMenu
               items={profileMenuItems}
-              buttonClass={`p-2 rounded-full ${
+              buttonClass={`rounded-full ${
                 isDark ? "hover:bg-gray-700" : "hover:bg-gray-200"
               }`}
             />
           </div>
 
-          {/* Search input */}
           <div className="p-3">
             <SearchInput
               value={searchQuery}
@@ -187,15 +241,15 @@ const ChatLayout = ({ chatId }) => {
                     ? "text-teal-400 border-b-2 border-teal-400"
                     : "text-teal-600 border-b-2 border-teal-600"
                   : isDark
-                  ? "text-gray-400"
-                  : "text-gray-500"
+                  ? "text-gray-400 hover:text-gray-300"
+                  : "text-gray-500 hover:text-gray-900"
               }`}
             >
               Chats
               {notificationsData?.messageCount > 0 && (
-                <span className="absolute top-1 right-4 px-1.5 py-0.5 text-xs rounded-full bg-teal-500 text-white min-w-[18px]">
+                <Badge className="absolute top-2 right-1/2 translate-x-12 h-5 min-w-[20px] flex items-center justify-center bg-teal-500 hover:bg-teal-500 text-white text-xs">
                   {notificationsData.messageCount}
-                </span>
+                </Badge>
               )}
             </button>
             <button
@@ -206,15 +260,15 @@ const ChatLayout = ({ chatId }) => {
                     ? "text-teal-400 border-b-2 border-teal-400"
                     : "text-teal-600 border-b-2 border-teal-600"
                   : isDark
-                  ? "text-gray-400"
-                  : "text-gray-500"
+                  ? "text-gray-400 hover:text-gray-300"
+                  : "text-gray-500 hover:text-gray-900"
               }`}
             >
               Contacts
               {notificationsData?.contactRequestCount > 0 && (
-                <span className="absolute top-1 right-4 px-1.5 py-0.5 text-xs rounded-full bg-teal-500 text-white min-w-[18px]">
+                <Badge className="absolute top-2 right-1/2 translate-x-12 h-5 min-w-[20px] flex items-center justify-center bg-teal-500 hover:bg-teal-500 text-white text-xs">
                   {notificationsData.contactRequestCount}
-                </span>
+                </Badge>
               )}
             </button>
           </div>
@@ -232,9 +286,9 @@ const ChatLayout = ({ chatId }) => {
           </div>
         </div>
 
-        {/* Main chat area */}
+        {/* Main content area */}
         <div className="hidden md:flex md:flex-1 flex-col">
-          {renderChatArea()}
+          {renderMainContent()}
         </div>
       </div>
     </div>

@@ -104,7 +104,35 @@ export const getMessages = async (chatId, page = 1, limit = 30) => {
       },
     }
   );
-  return response.data;
+
+  // Ensure the response has the expected format
+  const data = response.data;
+
+  // If the response doesn't have the expected format, normalize it
+  if (!data.messages && Array.isArray(data)) {
+    return {
+      messages: data,
+      pagination: {
+        page: page,
+        limit: limit,
+        totalMessages: data.length,
+        totalPages: 1,
+        hasMore: false,
+      },
+    };
+  }
+
+  if (!data.pagination) {
+    data.pagination = {
+      page: page,
+      limit: limit,
+      totalMessages: data.messages?.length || 0,
+      totalPages: 1,
+      hasMore: false,
+    };
+  }
+
+  return data;
 };
 
 export const markMessagesAsDelivered = async (chatId) => {

@@ -4,7 +4,20 @@ import { useChat } from "../../context/ChatContext";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { sendMessage } from "../../state/chat";
 import { debounce } from "../../lib/utils";
-import Avatar from "../ui/Avatar";
+import Avatar from "../ui/AvatarIcon";
+import CustomDropdownMenu from "../ui/DropdownMenu";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Image as ImageIcon,
+  File as FileIcon,
+  Music as MusicIcon,
+  X as XIcon,
+  Send as SendIcon,
+  Mic as MicIcon,
+  Paperclip as PaperclipIcon,
+  FileText as FileTextIcon,
+} from "lucide-react";
 
 const ChatInput = ({ chatId }) => {
   const { theme } = useTheme();
@@ -40,15 +53,39 @@ const ChatInput = ({ chatId }) => {
 
     const currentData = queryClient.getQueryData(["messages", chatId]);
 
-    if (currentData?.messages && currentData.messages.length > 0) {
+    if (currentData?.pages) {
+      const updatedPages = [...currentData.pages];
+      if (updatedPages.length > 0) {
+        updatedPages[0] = {
+          ...updatedPages[0],
+          messages: [optimisticMessage, ...(updatedPages[0].messages || [])],
+        };
+      } else {
+        updatedPages[0] = {
+          messages: [optimisticMessage],
+          pagination: { page: 1, hasMore: false },
+        };
+      }
+
+      queryClient.setQueryData(["messages", chatId], {
+        ...currentData,
+        pages: updatedPages,
+        pageParams: currentData.pageParams || [],
+      });
+    } else if (currentData?.messages) {
       queryClient.setQueryData(["messages", chatId], {
         ...currentData,
         messages: [optimisticMessage, ...currentData.messages],
       });
     } else {
       queryClient.setQueryData(["messages", chatId], {
-        messages: [optimisticMessage],
-        pagination: { page: 1, hasMore: false },
+        pages: [
+          {
+            messages: [optimisticMessage],
+            pagination: { page: 1, hasMore: false },
+          },
+        ],
+        pageParams: [1],
       });
     }
 
@@ -94,16 +131,6 @@ const ChatInput = ({ chatId }) => {
     },
   });
 
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "24px";
-      textareaRef.current.style.height = `${Math.min(
-        textareaRef.current.scrollHeight,
-        120
-      )}px`;
-    }
-  }, [message]);
-
   const debouncedTyping = useRef(
     debounce((isTyping) => {
       setTyping(chatId, isTyping);
@@ -123,16 +150,14 @@ const ChatInput = ({ chatId }) => {
     };
   }, [message, chatId, debouncedTyping, setTyping]);
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = (e, type) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setMedia(file);
+    setAttachmentType(type);
 
-    const fileType = file.type.split("/")[0];
-    setAttachmentType(fileType);
-
-    if (fileType === "image") {
+    if (type === "image") {
       const reader = new FileReader();
       reader.onload = (e) => {
         setMediaPreview(e.target.result);
@@ -186,6 +211,69 @@ const ChatInput = ({ chatId }) => {
     setParentMessage(null);
   };
 
+  const attachmentMenuItems = [
+    {
+      label: "Photo & Video",
+      icon: (
+        <ImageIcon
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
+      action: () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*,video/*";
+        input.onchange = (e) => handleFileSelect(e, "image");
+        input.click();
+      },
+    },
+    {
+      label: "Document",
+      icon: (
+        <FileTextIcon
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
+      action: () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".pdf,.doc,.docx,.txt,.xlsx,.xls,.ppt,.pptx";
+        input.onchange = (e) => handleFileSelect(e, "document");
+        input.click();
+      },
+    },
+    {
+      label: "Audio",
+      icon: (
+        <MusicIcon
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
+      action: () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "audio/*";
+        input.onchange = (e) => handleFileSelect(e, "audio");
+        input.click();
+      },
+    },
+    {
+      label: "Any File",
+      icon: (
+        <FileIcon
+          className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+        />
+      ),
+      action: () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "*/*";
+        input.onchange = (e) => handleFileSelect(e, "file");
+        input.click();
+      },
+    },
+  ];
+
   return (
     <div
       className={`p-3 border-t ${
@@ -214,27 +302,16 @@ const ChatInput = ({ chatId }) => {
                 : `[${parentMessage.type.toLowerCase()}]`}
             </p>
           </div>
-          <button
-            className={`ml-2 p-1 rounded-full ${
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`ml-2 rounded-full ${
               isDark ? "hover:bg-gray-600" : "hover:bg-gray-200"
             }`}
             onClick={cancelReply}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+            <XIcon className="h-5 w-5" />
+          </Button>
         </div>
       )}
 
@@ -245,69 +322,33 @@ const ChatInput = ({ chatId }) => {
             alt="Upload preview"
             className="w-full h-full object-cover rounded-lg"
           />
-          <button
+          <Button
+            variant="secondary"
+            size="icon"
             className={`
-              absolute top-1 right-1 rounded-full p-1
+              absolute top-1 right-1 rounded-full h-6 w-6
               ${isDark ? "bg-gray-800" : "bg-gray-200"}
             `}
             onClick={clearMedia}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+            <XIcon className="h-4 w-4" />
+          </Button>
         </div>
       )}
 
       <div className="flex items-end space-x-2">
-        <button
-          className={`
-            p-2 rounded-full flex-shrink-0
-            ${
-              isDark
-                ? "text-gray-300 hover:bg-gray-700"
-                : "text-gray-500 hover:bg-gray-100"
-            }
-          `}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-            />
-          </svg>
-        </button>
-        <input
-          type="file"
-          ref={fileInputRef}
-          className="hidden"
-          onChange={handleFileSelect}
-          accept="image/*,video/*,audio/*,application/*,text/*"
+        <CustomDropdownMenu
+          items={attachmentMenuItems}
+          buttonIcon={<PaperclipIcon className="h-6 w-6" />}
+          buttonClass={`rounded-full p-2 ${
+            isDark ? "hover:bg-gray-700" : "hover:bg-gray-100"
+          }`}
+          align="start"
         />
 
         <div
           className={`
-          flex-1 min-h-[40px] max-h-[160px] rounded-lg px-3 pt-2 pb-2
+          flex-1 min-h-[40px] max-h-[160px] rounded-lg px-3 py-2
           ${isDark ? "bg-gray-700" : "bg-gray-100"}
         `}
         >
@@ -315,7 +356,8 @@ const ChatInput = ({ chatId }) => {
             ref={textareaRef}
             placeholder="Type a message"
             className={`
-              w-full resize-none bg-transparent outline-none
+              w-full min-h-[24px] resize-none border-0 bg-transparent 
+              outline-none focus:outline-none focus:ring-0
               ${
                 isDark
                   ? "text-white placeholder-gray-400"
@@ -330,12 +372,17 @@ const ChatInput = ({ chatId }) => {
         </div>
 
         {message.trim() || media ? (
-          <button
+          <Button
             onClick={handleSendMessage}
             disabled={sendMessageMutation.isPending}
+            size="icon"
             className={`
-              p-2 rounded-full flex-shrink-0 
-              ${isDark ? "bg-teal-600 text-white" : "bg-teal-500 text-white"}
+              rounded-full
+              ${
+                isDark
+                  ? "bg-teal-600 hover:bg-teal-700"
+                  : "bg-teal-500 hover:bg-teal-600"
+              }
               ${
                 sendMessageMutation.isPending
                   ? "opacity-50 cursor-not-allowed"
@@ -343,47 +390,19 @@ const ChatInput = ({ chatId }) => {
               }
             `}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-              />
-            </svg>
-          </button>
+            <SendIcon className="h-5 w-5" />
+          </Button>
         ) : (
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             className={`
-              p-2 rounded-full flex-shrink-0 
-              ${
-                isDark
-                  ? "text-gray-300 hover:bg-gray-700"
-                  : "text-gray-500 hover:bg-gray-100"
-              }
+              rounded-full
+              ${isDark ? "hover:bg-gray-700" : "hover:bg-gray-100"}
             `}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-              />
-            </svg>
-          </button>
+            <MicIcon className="h-6 w-6" />
+          </Button>
         )}
       </div>
     </div>

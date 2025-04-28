@@ -14,19 +14,17 @@ import ChatsPage from "./pages/ChatsPage";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useEffect } from "react";
 
-// Create a React Query client with proper configuration
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
       retry: 1,
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      cacheTime: 10 * 60 * 1000, // 10 minutes
+      staleTime: 5 * 60 * 1000,
+      cacheTime: 10 * 60 * 1000,
     },
   },
 });
 
-// Main App component
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -65,7 +63,6 @@ function AppRoutes({ isLoading }) {
 
   return (
     <Routes>
-      {/* Public routes */}
       <Route
         path="/"
         element={

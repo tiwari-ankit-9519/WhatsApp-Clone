@@ -9,6 +9,8 @@ import {
   markMessagesAsRead,
   getMessages,
   deleteMessage,
+  reactToMessage,
+  getMessageReplies,
 } from "../controllers/chat.controller.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { upload } from "../config/fileUpload.js";
@@ -27,6 +29,10 @@ router.patch("/messages/:messageId/status", updateMessageStatus);
 router.delete("/messages/:messageId", deleteMessage);
 router.post("/:chatId/messages/delivered", markMessagesAsDelivered);
 router.post("/:chatId/messages/read", markMessagesAsRead);
+
+router.post("/messages/:messageId/react", reactToMessage);
+
+router.get("/messages/:messageId/replies", getMessageReplies);
 
 router.post(
   "/:chatId/messages/media",

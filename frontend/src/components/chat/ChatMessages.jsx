@@ -21,15 +21,26 @@ const ChatMessages = ({ chatId }) => {
       queryKey: ["messages", chatId],
       queryFn: ({ pageParam = 1 }) => getMessages(chatId, pageParam),
       getNextPageParam: (lastPage) => {
-        if (lastPage.pagination?.hasMore) {
-          return (lastPage.pagination.page || 1) + 1;
+        // Ensure lastPage exists and has the expected structure
+        if (!lastPage || !lastPage.pagination) {
+          return undefined;
         }
+
+        // Check if there are more pages
+        if (lastPage.pagination.hasMore) {
+          const currentPage = lastPage.pagination.page || 1;
+          return currentPage + 1;
+        }
+
         return undefined;
       },
       keepPreviousData: true,
       staleTime: 1000 * 5,
       refetchOnWindowFocus: false,
       cacheTime: 1000 * 60 * 10,
+      // Add retry logic with backoff
+      retry: 2,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     });
 
   // Use useMemo to wrap the allMessages initialization
@@ -96,6 +107,13 @@ const ChatMessages = ({ chatId }) => {
 
   const groupedMessages = groupMessagesByDate(allMessages);
   const isTyping = typingUsers[chatId]?.length > 0 || false;
+
+  // Handler for reply functionality
+  const handleReply = (replyToMessage) => {
+    if (window.setParentMessage) {
+      window.setParentMessage(replyToMessage);
+    }
+  };
 
   return (
     <div
@@ -168,6 +186,7 @@ const ChatMessages = ({ chatId }) => {
                     isOwnMessage={isOwnMessage}
                     showAvatar={showAvatar}
                     isConsecutive={isConsecutive}
+                    onReply={handleReply}
                   />
                 );
               })}

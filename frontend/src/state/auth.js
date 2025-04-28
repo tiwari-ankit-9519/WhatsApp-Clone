@@ -22,7 +22,12 @@ export const userProfile = async () => {
   return result.data;
 };
 
-export const deleteUserProfile = async () => {
-  const result = await axios.delete(`${url}/api/auth/profile`);
+export const updateProfile = async (data) => {
+  const result = await axios.put(`${url}/api/auth/update-profile`, data);
+  return result.data;
+};
+
+export const deleteAccount = async () => {
+  const result = await axios.delete(`${url}/api/auth/delete-profile`);
   return result.data;
 };

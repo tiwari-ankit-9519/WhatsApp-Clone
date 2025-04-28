@@ -1,6 +1,6 @@
 import React from "react";
 import { useTheme } from "../../components/theme-provider";
-import Avatar from "../ui/Avatar";
+import Avatar from "../ui/AvatarIcon";
 
 const ContactRequestItem = ({ contact, onAccept, onReject }) => {
   const { theme } = useTheme();
