@@ -23,6 +23,9 @@ router.post("/", upload.single("groupIcon"), createChat);
 router.get("/", getChats);
 router.get("/:chatId", getChatById);
 
+router.get("/messages/search", authMiddleware, searchMessages);
+router.get("/messages/:messageId/context", authMiddleware, getMessageContext);
+
 router.post("/:chatId/messages", upload.single("media"), sendMessage);
 router.get("/:chatId/messages", getMessages);
 router.patch("/messages/:messageId/status", updateMessageStatus);

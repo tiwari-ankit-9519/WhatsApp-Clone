@@ -10,12 +10,9 @@ import authRoutes from "./routes/auth.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
-import {
-  connectRedis,
-  redisClient,
-  invalidateUserCache,
-  invalidateChatCache,
-} from "./common/redis.js";
+import starredMessageRoutes from "./routes/starmessage.routes.js";
+import messageForwardRoutes from "./routes/forwardmessage.routes.js";
+import { connectRedis, redisClient } from "./common/redis.js";
 
 dotenv.config();
 
@@ -34,6 +31,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/starred", starredMessageRoutes);
+app.use("/api/forward", messageForwardRoutes);
 
 io.on("connection", async (socket) => {
   console.log(`New connection: ${socket.id}`);

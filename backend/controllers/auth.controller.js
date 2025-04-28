@@ -50,6 +50,9 @@ export const createUser = async (req, res) => {
         lastSeen: true,
         createdAt: true,
         updatedAt: true,
+        dateOfBirth: true,
+        gender: true,
+        bio: true,
       },
     });
 
@@ -108,6 +111,9 @@ export const loginUser = async (req, res) => {
         lastSeen: true,
         createdAt: true,
         updatedAt: true,
+        dateOfBirth: true,
+        gender: true,
+        bio: true,
         password: true,
       },
     });
@@ -156,6 +162,9 @@ export const getUserProfile = async (req, res) => {
         lastSeen: true,
         createdAt: true,
         updatedAt: true,
+        dateOfBirth: true,
+        gender: true,
+        bio: true,
       },
     });
 
@@ -180,9 +189,9 @@ export const getUserProfile = async (req, res) => {
 
 export const updateUserProfile = async (req, res) => {
   const userId = req.userAuthId;
-  const { name, email } = req.body;
+  const { name, email, dateOfBirth, gender, bio } = req.body;
 
-  if (!name && !email && !req.uploadedFile) {
+  if (!name && !email && !dateOfBirth && !gender && !bio && !req.uploadedFile) {
     res
       .status(400)
       .json({ message: "Please provide at least one field to update" });
@@ -219,6 +228,53 @@ export const updateUserProfile = async (req, res) => {
       updateData.email = email;
     }
 
+    if (dateOfBirth) {
+      const dobDate = new Date(dateOfBirth);
+      if (isNaN(dobDate.getTime())) {
+        res
+          .status(400)
+          .json({ message: "Invalid date format for dateOfBirth" });
+        return;
+      }
+
+      const minAgeDate = new Date();
+      minAgeDate.setFullYear(minAgeDate.getFullYear() - 13);
+      if (dobDate > minAgeDate) {
+        res.status(400).json({
+          message: "User must be at least 13 years old",
+          minimumAge: 13,
+        });
+        return;
+      }
+
+      updateData.dateOfBirth = dobDate;
+    }
+
+    if (gender) {
+      const validGenders = ["MALE", "FEMALE", "OTHER"];
+      if (!validGenders.includes(gender)) {
+        res.status(400).json({
+          message: "Invalid gender value",
+          validValues: validGenders,
+        });
+        return;
+      }
+
+      updateData.gender = gender;
+    }
+
+    if (bio !== undefined) {
+      if (bio && bio.length > 500) {
+        res.status(400).json({
+          message: "Bio is too long",
+          maxLength: 500,
+        });
+        return;
+      }
+
+      updateData.bio = bio;
+    }
+
     if (req.uploadedFile) {
       updateData.profilePic = req.uploadedFile.url;
     }
@@ -235,6 +291,9 @@ export const updateUserProfile = async (req, res) => {
         lastSeen: true,
         createdAt: true,
         updatedAt: true,
+        dateOfBirth: true,
+        gender: true,
+        bio: true,
       },
     });
 
@@ -282,6 +341,9 @@ export const logoutUser = async (req, res) => {
         lastSeen: true,
         createdAt: true,
         updatedAt: true,
+        dateOfBirth: true,
+        gender: true,
+        bio: true,
       },
     });
 

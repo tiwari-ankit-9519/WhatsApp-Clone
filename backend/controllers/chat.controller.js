@@ -1252,3 +1252,360 @@ export const getMessages = async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch messages" });
   }
 };
+
+/**
+ * Search for messages within chats
+ * Allows searching by content across all chats or within a specific chat
+ */
+export const searchMessages = async (req, res) => {
+  try {
+    const userId = req.userAuthId;
+    const { query, chatId, page = "1", limit = "20" } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!query || query.trim().length < 2) {
+      return res.status(400).json({
+        error: "Search query is required",
+        message: "Please provide a search term with at least 2 characters",
+      });
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const baseConditions = {
+      chat: {
+        users: {
+          some: {
+            userId,
+          },
+        },
+      },
+      deletedFor: {
+        none: {
+          userId,
+          type: {
+            in: ["FOR_ME", "FOR_EVERYONE"],
+          },
+        },
+      },
+    };
+
+    const searchQuery = query
+      .trim()
+      .split(/\s+/)
+      .filter((word) => word.length > 0)
+      .map((word) => `${word}:*`)
+      .join(" & ");
+
+    const whereClause = { ...baseConditions };
+
+    if (chatId) {
+      const chatMember = await prisma.usersOnChats.findUnique({
+        where: {
+          userId_chatId: {
+            userId,
+            chatId,
+          },
+        },
+      });
+
+      if (!chatMember) {
+        return res
+          .status(403)
+          .json({ error: "You are not a member of this chat" });
+      }
+
+      whereClause.chatId = chatId;
+    }
+
+    const totalCount = await prisma.message.count({
+      where: {
+        ...whereClause,
+        content: {
+          search: searchQuery,
+        },
+      },
+    });
+
+    // If no results, return early
+    if (totalCount === 0) {
+      return res.status(200).json({
+        messages: [],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalCount: 0,
+          totalPages: 0,
+          hasMore: false,
+        },
+        query,
+      });
+    }
+
+    // Get messages matching the search
+    const messages = await prisma.message.findMany({
+      where: {
+        ...whereClause,
+        content: {
+          search: searchQuery,
+        },
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profilePic: true,
+          },
+        },
+        chat: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            image: true,
+          },
+        },
+        reactions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        parentMessage: {
+          include: {
+            sender: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc", // Most recent messages first
+      },
+      skip,
+      take: limitNum,
+    });
+
+    return res.status(200).json({
+      messages,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limitNum),
+        hasMore: skip + messages.length < totalCount,
+      },
+      query,
+    });
+  } catch (error) {
+    console.error("Error searching messages:", error);
+    return res.status(500).json({ error: "Failed to search messages" });
+  }
+};
+
+export const getMessageContext = async (req, res) => {
+  try {
+    const userId = req.userAuthId;
+    const { messageId } = req.params;
+    const { before = "5", after = "5" } = req.query;
+
+    if (!userId || !messageId) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    // Convert to numbers
+    const beforeCount = parseInt(before);
+    const afterCount = parseInt(after);
+
+    // Limit the number of messages for performance
+    const maxMessagesPerDirection = 20;
+    const limitedBefore = Math.min(beforeCount, maxMessagesPerDirection);
+    const limitedAfter = Math.min(afterCount, maxMessagesPerDirection);
+
+    // Get the target message
+    const targetMessage = await prisma.message.findUnique({
+      where: { id: messageId },
+      include: {
+        chat: {
+          select: {
+            id: true,
+            users: {
+              select: {
+                userId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!targetMessage) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    // Check if user is part of the chat
+    const isParticipant = targetMessage.chat.users.some(
+      (u) => u.userId === userId
+    );
+    if (!isParticipant) {
+      return res
+        .status(403)
+        .json({ error: "Not authorized to access this chat" });
+    }
+
+    // Check if message is deleted for this user
+    const isDeleted = await prisma.messageDeletedFor.findFirst({
+      where: {
+        messageId,
+        userId,
+      },
+    });
+
+    if (isDeleted) {
+      return res.status(404).json({ error: "Message not available" });
+    }
+
+    // Get messages before target message
+    const messagesBefore = await prisma.message.findMany({
+      where: {
+        chatId: targetMessage.chatId,
+        createdAt: {
+          lt: targetMessage.createdAt,
+        },
+        deletedFor: {
+          none: {
+            userId,
+            type: {
+              in: ["FOR_ME", "FOR_EVERYONE"],
+            },
+          },
+        },
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            profilePic: true,
+          },
+        },
+        reactions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: limitedBefore,
+    });
+
+    // Get messages after target message
+    const messagesAfter = await prisma.message.findMany({
+      where: {
+        chatId: targetMessage.chatId,
+        createdAt: {
+          gt: targetMessage.createdAt,
+        },
+        deletedFor: {
+          none: {
+            userId,
+            type: {
+              in: ["FOR_ME", "FOR_EVERYONE"],
+            },
+          },
+        },
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            profilePic: true,
+          },
+        },
+        reactions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+      take: limitedAfter,
+    });
+
+    // Get the complete target message with all its details
+    const focusMessage = await prisma.message.findUnique({
+      where: { id: messageId },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            profilePic: true,
+          },
+        },
+        reactions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        parentMessage: {
+          include: {
+            sender: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Combine all messages in chronological order
+    const context = {
+      before: messagesBefore.reverse(), // Reverse to get chronological order
+      focus: focusMessage,
+      after: messagesAfter,
+      chatId: targetMessage.chatId,
+    };
+
+    return res.status(200).json({ context });
+  } catch (error) {
+    console.error("Error getting message context:", error);
+    return res.status(500).json({ error: "Failed to get message context" });
+  }
+};
