@@ -64,18 +64,6 @@ const Register = () => {
         variants={itemVariants}
       >
         <div className="w-full max-w-md">
-          <motion.div
-            className="text-center mb-6 sm:mb-8"
-            variants={itemVariants}
-          >
-            <h1 className="text-3xl sm:text-4xl font-bold text-foreground">
-              Sign up
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              Create your ChatConnect account
-            </p>
-          </motion.div>
-
           <RegisterForm />
         </div>
       </motion.main>

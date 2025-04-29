@@ -64,18 +64,6 @@ const Login = () => {
         variants={itemVariants}
       >
         <div className="w-full max-w-md">
-          <motion.div
-            className="text-center mb-8 sm:mb-10"
-            variants={itemVariants}
-          >
-            <h1 className="text-3xl sm:text-4xl font-bold text-foreground">
-              Sign in
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              Welcome back to ChatConnect
-            </p>
-          </motion.div>
-
           <LoginForm />
         </div>
       </motion.main>

@@ -6,7 +6,8 @@ import { z } from "zod";
 import { motion } from "framer-motion";
 import { useAuthContext } from "../../contexts/AuthContext";
 import { Link } from "react-router-dom";
-import { EyeIcon, EyeOffIcon, Upload } from "lucide-react";
+import { EyeIcon, EyeOffIcon, Upload, X } from "lucide-react";
+import { useDropzone } from "react-dropzone";
 
 const registerSchema = z
   .object({
@@ -16,7 +17,6 @@ const registerSchema = z
       .string()
       .min(6, { message: "Password must be at least 6 characters" }),
     confirmPassword: z.string(),
-    profilePic: z.any().optional(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -27,7 +27,7 @@ const RegisterForm = () => {
   const { register: registerUser, isRegisterLoading } = useAuthContext();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [previewImage, setPreviewImage] = useState(null);
+  const [profilePic, setProfilePic] = useState(null);
 
   const {
     register,
@@ -49,22 +49,37 @@ const RegisterForm = () => {
     formData.append("email", data.email);
     formData.append("password", data.password);
 
-    if (data.profilePic && data.profilePic[0]) {
-      formData.append("profilePic", data.profilePic[0]);
+    if (profilePic) {
+      formData.append("profilePic", profilePic);
     }
 
     registerUser(formData);
   };
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewImage(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: {
+      "image/*": [".jpeg", ".jpg", ".png", ".gif"],
+    },
+    maxFiles: 1,
+    onDrop: (acceptedFiles) => {
+      if (acceptedFiles.length > 0) {
+        const file = acceptedFiles[0];
+        setProfilePic(file);
+        const reader = new FileReader();
+        reader.onload = () => {
+          setPreviewUrl(reader.result);
+        };
+        reader.readAsDataURL(file);
+      }
+    },
+  });
+
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  const removeImage = (e) => {
+    e.stopPropagation();
+    setProfilePic(null);
+    setPreviewUrl(null);
   };
 
   const formVariants = {
@@ -148,18 +163,37 @@ const RegisterForm = () => {
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div className="flex flex-col items-center justify-center mb-4">
-              <div className="relative group">
+              <div
+                {...getRootProps()}
+                className={`w-24 h-24 rounded-full cursor-pointer relative group ${
+                  isDragActive ? "border-primary border-dashed" : ""
+                }`}
+              >
+                <input {...getInputProps()} />
                 <div
-                  className={`w-24 h-24 rounded-full overflow-hidden border-2 ${
-                    errors.profilePic ? "border-destructive" : "border-primary"
-                  } flex items-center justify-center bg-muted`}
+                  className={`w-24 h-24 rounded-full overflow-hidden border-2 
+                  ${
+                    isDragActive
+                      ? "border-primary border-dashed"
+                      : "border-primary"
+                  } 
+                  flex items-center justify-center bg-muted relative`}
                 >
-                  {previewImage ? (
-                    <img
-                      src={previewImage}
-                      alt="Profile preview"
-                      className="w-full h-full object-cover"
-                    />
+                  {previewUrl ? (
+                    <>
+                      <img
+                        src={previewUrl}
+                        alt="Profile preview"
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={removeImage}
+                        className="absolute top-0 right-0 bg-destructive text-white rounded-full p-1 transform translate-x-1/4 -translate-y-1/4 hover:bg-destructive/90 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
                   ) : (
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -176,22 +210,16 @@ const RegisterForm = () => {
                     </svg>
                   )}
                 </div>
-                <input
-                  type="file"
-                  id="profilePic"
-                  accept="image/*"
-                  className="absolute inset-0 w-24 h-24 rounded-full opacity-0 cursor-pointer"
-                  {...register("profilePic")}
-                  onChange={handleImageChange}
-                  disabled={isSubmitting || isRegisterLoading}
-                />
                 <div className="absolute inset-0 flex items-center justify-center w-24 h-24 rounded-full bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Upload className="w-6 h-6 text-white" />
                 </div>
-                <p className="text-xs text-center mt-2 text-muted-foreground">
-                  {previewImage ? "Change picture" : "Upload picture"}
-                </p>
               </div>
+              <p className="text-xs text-center mt-2 text-muted-foreground">
+                {previewUrl ? "Change picture" : "Upload picture"}
+              </p>
+              {isDragActive && (
+                <p className="text-xs mt-1 text-primary">Drop the image here</p>
+              )}
             </div>
 
             <div className="space-y-2">
