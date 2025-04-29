@@ -1,25 +1,84 @@
 import { useEffect, useRef } from "react";
 import MessageItem from "./MessageItem";
 import { useSocketContext } from "../../contexts/SocketContext";
+import { ScrollArea } from "../ui/scroll-area";
 
-const MessageList = ({ messages, chat, currentUserId }) => {
-  const messagesEndRef = useRef(null);
+const MessageList = ({
+  messages,
+  chat,
+  currentUserId,
+  loadMoreMessages,
+  hasMoreMessages,
+  isLoadingMore,
+}) => {
+  const scrollAreaRef = useRef(null);
+  const viewportRef = useRef(null);
+  const previousHeightRef = useRef(0);
+  const isLoadingRef = useRef(false);
   const { getTypingUsers } = useSocketContext();
 
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  // Sort messages by creation date (oldest to newest)
+  const sortedMessages = [...messages].sort(
+    (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+  );
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  // Handle scrolling when loading more messages
+  useEffect(() => {
+    const handleScroll = async () => {
+      if (
+        !viewportRef.current ||
+        isLoadingRef.current ||
+        !hasMoreMessages ||
+        isLoadingMore
+      ) {
+        return;
+      }
+
+      // If scrolled near the top, load more messages
+      if (viewportRef.current.scrollTop < 50) {
+        isLoadingRef.current = true;
+        previousHeightRef.current = viewportRef.current.scrollHeight;
+
+        try {
+          await loadMoreMessages();
+        } finally {
+          // Set a timeout to allow React to render the new messages
+          setTimeout(() => {
+            isLoadingRef.current = false;
+          }, 300);
+        }
+      }
+    };
+
+    const viewport = viewportRef.current;
+    if (viewport) {
+      viewport.addEventListener("scroll", handleScroll);
+      return () => viewport.removeEventListener("scroll", handleScroll);
+    }
+  }, [loadMoreMessages, hasMoreMessages, isLoadingMore]);
+
+  // Maintain scroll position when loading older messages
+  useEffect(() => {
+    if (previousHeightRef.current > 0 && viewportRef.current) {
+      setTimeout(() => {
+        if (viewportRef.current) {
+          const newHeight = viewportRef.current.scrollHeight;
+          const newPosition = newHeight - previousHeightRef.current;
+
+          if (newPosition > 0) {
+            viewportRef.current.scrollTop = newPosition;
+            previousHeightRef.current = 0;
+          }
+        }
+      }, 50);
+    }
+  }, [messages.length]);
 
   // Group messages by date
   const groupMessagesByDate = () => {
     const groups = {};
 
-    messages.forEach((message) => {
+    sortedMessages.forEach((message) => {
       const date = new Date(message.createdAt);
       const dateKey = date.toDateString();
 
@@ -71,7 +130,7 @@ const MessageList = ({ messages, chat, currentUserId }) => {
   const typingUserNames = getTypingUserNames();
 
   // Empty state if no messages
-  if (messages.length === 0) {
+  if (sortedMessages.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-y-auto bg-accent/10">
         <div className="text-center p-6 max-w-md">
@@ -99,61 +158,77 @@ const MessageList = ({ messages, chat, currentUserId }) => {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 bg-accent/10">
-      {/* Message groups by date */}
-      {Object.keys(messageGroups).map((date) => (
-        <div key={date}>
-          {/* Date header */}
-          <div className="flex justify-center my-4">
-            <div className="px-3 py-1 bg-accent/50 rounded-full text-xs text-muted-foreground">
-              {formatDate(date)}
+    <div style={{ height: "100%", position: "relative" }}>
+      <ScrollArea
+        className="h-full"
+        style={{ height: "100%" }}
+        ref={scrollAreaRef}
+        viewportRef={viewportRef}
+      >
+        <div className="p-4 bg-accent/10">
+          {/* Loading indicator for infinite scroll */}
+          {isLoadingMore && (
+            <div className="flex justify-center py-2 mb-2">
+              <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
             </div>
-          </div>
+          )}
 
-          {/* Messages in this date group */}
-          {messageGroups[date].map((message, index) => (
-            <MessageItem
-              key={message.id}
-              message={message}
-              isOwn={message.senderId === currentUserId}
-              showSender={chat.type === "GROUP"}
-              previousMessage={
-                index > 0 ? messageGroups[date][index - 1] : null
-              }
-              chat={chat}
-            />
-          ))}
-        </div>
-      ))}
-
-      {/* Typing indicator */}
-      {typingUserNames && (
-        <div className="flex px-4 py-2 text-sm text-muted-foreground">
-          <div className="bg-card px-3 py-2 rounded-lg shadow-sm">
-            <div className="flex items-center gap-2">
-              <div className="flex">
-                <span className="animate-bounce">.</span>
-                <span
-                  className="animate-bounce"
-                  style={{ animationDelay: "0.2s" }}
-                >
-                  .
-                </span>
-                <span
-                  className="animate-bounce"
-                  style={{ animationDelay: "0.4s" }}
-                >
-                  .
-                </span>
+          {/* Message groups by date */}
+          {Object.keys(messageGroups).map((date) => (
+            <div key={date}>
+              {/* Date header */}
+              <div className="flex justify-center my-4">
+                <div className="px-3 py-1 bg-accent/50 rounded-full text-xs text-muted-foreground">
+                  {formatDate(date)}
+                </div>
               </div>
-              <span>{typingUserNames} typing</span>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Empty div for scrolling to bottom */}
-      <div ref={messagesEndRef} />
+              {/* Messages in this date group */}
+              {messageGroups[date].map((message, index) => (
+                <MessageItem
+                  key={message.id || `temp-${message.createdAt}`}
+                  message={message}
+                  isOwn={message.senderId === currentUserId}
+                  showSender={chat.type === "GROUP"}
+                  previousMessage={
+                    index > 0 ? messageGroups[date][index - 1] : null
+                  }
+                  chat={chat}
+                />
+              ))}
+            </div>
+          ))}
+
+          {/* Typing indicator */}
+          {typingUserNames && (
+            <div className="flex px-4 py-2 text-sm text-muted-foreground">
+              <div className="bg-card px-3 py-2 rounded-lg shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="flex">
+                    <span className="animate-bounce">.</span>
+                    <span
+                      className="animate-bounce"
+                      style={{ animationDelay: "0.2s" }}
+                    >
+                      .
+                    </span>
+                    <span
+                      className="animate-bounce"
+                      style={{ animationDelay: "0.4s" }}
+                    >
+                      .
+                    </span>
+                  </div>
+                  <span>{typingUserNames} typing</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Extra space at the bottom to ensure messages don't get hidden behind input */}
+          <div style={{ height: "16px" }} />
+        </div>
+      </ScrollArea>
     </div>
   );
 };

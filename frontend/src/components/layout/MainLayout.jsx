@@ -28,7 +28,8 @@ function MainLayout() {
           closeMobileSidebar={() => setIsMobileSidebarOpen(false)}
         />
 
-        <div className="flex-1 relative h-full overflow-hidden">
+        {/* Important: Ensure the chat container allows full height and proper overflow behavior */}
+        <div className="flex-1 w-full h-full overflow-hidden flex flex-col">
           {/* Mobile menu toggle button - only visible on small screens */}
           <button
             className="md:hidden absolute top-4 left-4 z-20 p-2 bg-background rounded-md shadow-md border border-border"
@@ -51,7 +52,9 @@ function MainLayout() {
             </svg>
           </button>
 
-          <Outlet />
+          <div className="flex-1 h-full overflow-hidden flex flex-col">
+            <Outlet />
+          </div>
         </div>
       </main>
       <Toaster position="top-right" />

@@ -13,55 +13,68 @@ function ChatPage() {
   const navigate = useNavigate();
   const { user } = useAuthContext();
   const { useChatDetails, chats } = useChats();
-  const { messages, sendMessage, sendMediaMessage, isSending, isSendingMedia } =
-    useMessages(chatId);
 
+  // Get messages and all related message functions
+  const {
+    messages,
+    sendMessage,
+    sendMediaMessage,
+    isSending,
+    isSendingMedia,
+    loadMoreMessages,
+    hasMoreMessages,
+    isLoadingMore,
+  } = useMessages(chatId);
+
+  // Get socket-related functions
   const { joinChatRoom, leaveChatRoom, sendTypingStatus } = useSocketContext();
 
-  const messagesContainerRef = useRef(null);
+  // Local state
   const [message, setMessage] = useState("");
   const [typingTimeout, setTypingTimeout] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [optimisticMessages, setOptimisticMessages] = useState([]);
 
+  // Refs
   const hasMarkedAsRead = useRef(false);
+  const messageListContainerRef = useRef(null);
 
+  // Get chat details
   const { chat, isLoading: isChatLoading, markAsRead } = useChatDetails(chatId);
 
+  // Join chat room
   const handleJoinChat = useCallback(() => {
     if (chatId) {
       joinChatRoom(chatId);
     }
   }, [chatId, joinChatRoom]);
 
+  // Leave chat room
   const handleLeaveChat = useCallback(() => {
     if (chatId) {
       leaveChatRoom(chatId);
     }
   }, [chatId, leaveChatRoom]);
 
-  // Reset the markAsRead flag when chat changes
+  // Reset state and refs when chat changes
   useEffect(() => {
     hasMarkedAsRead.current = false;
+    setOptimisticMessages([]);
+    setMessage("");
   }, [chatId]);
 
-  // Join chat room when chat ID changes
+  // Join and leave chat room
   useEffect(() => {
     if (!chatId) return;
 
     handleJoinChat();
-
     return () => {
       handleLeaveChat();
     };
   }, [chatId, handleJoinChat, handleLeaveChat]);
 
-  // Mark messages as read when chat is opened - FIXED to prevent infinite loop
+  // Mark messages as read
   useEffect(() => {
-    // Only call markAsRead if:
-    // 1. We have a valid chatId
-    // 2. Chat data is loaded
-    // 3. We haven't already marked as read (prevents loop)
-    // 4. The chat has unread messages
     if (
       chatId &&
       chat &&
@@ -73,6 +86,26 @@ function ChatPage() {
       hasMarkedAsRead.current = true;
     }
   }, [chatId, chat, markAsRead]);
+
+  // Scroll to bottom directly (not relying on child components)
+  const scrollToBottom = useCallback(() => {
+    if (messageListContainerRef.current) {
+      const scrollElement = messageListContainerRef.current.querySelector(
+        "[data-radix-scroll-area-viewport]"
+      );
+      if (scrollElement) {
+        scrollElement.scrollTop = scrollElement.scrollHeight;
+      }
+    }
+  }, []);
+
+  // Scroll to bottom when new messages are added
+  useEffect(() => {
+    if (messages.length > 0 || optimisticMessages.length > 0) {
+      // Use a timeout to ensure DOM is updated
+      setTimeout(scrollToBottom, 100);
+    }
+  }, [messages.length, optimisticMessages.length, scrollToBottom]);
 
   // Handle message input change
   const handleMessageChange = (e) => {
@@ -111,17 +144,57 @@ function ChatPage() {
     };
   }, [typingTimeout]);
 
-  // Send message
-  const handleSendMessage = () => {
+  // Send message with optimistic update
+  const handleSendMessage = async () => {
     if (message.trim() && chatId) {
-      sendMessage({ content: message.trim() });
+      // Create optimistic message
+      const optimisticId = `optimistic-${Date.now()}`;
+      const optimisticMessage = {
+        id: optimisticId,
+        content: message.trim(),
+        type: "TEXT",
+        senderId: user.id,
+        chatId: chatId,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        statuses: [],
+      };
+
+      // Add to optimistic messages
+      setOptimisticMessages((prev) => [...prev, optimisticMessage]);
+
+      // Clear input field immediately for better UX
       setMessage("");
+
+      // Reset typing status
       setIsTyping(false);
       if (chatId) {
         sendTypingStatus(chatId, false);
       }
       if (typingTimeout) {
         clearTimeout(typingTimeout);
+      }
+
+      // Scroll to bottom immediately after sending
+      setTimeout(scrollToBottom, 50);
+
+      // Send actual message
+      try {
+        await sendMessage({ content: optimisticMessage.content });
+
+        // Remove optimistic message after successful send
+        setOptimisticMessages((prev) =>
+          prev.filter((msg) => msg.id !== optimisticId)
+        );
+      } catch (error) {
+        console.log(error);
+
+        // Mark message as failed
+        setOptimisticMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === optimisticId ? { ...msg, error: true } : msg
+          )
+        );
       }
     }
   };
@@ -134,8 +207,8 @@ function ChatPage() {
     }
   };
 
-  // Handle media attachment upload
-  const handleSendMedia = (file) => {
+  // Handle media attachment upload with optimistic update
+  const handleSendMedia = async (file) => {
     if (file && chatId) {
       const fileType = file.type.startsWith("image/")
         ? "IMAGE"
@@ -143,13 +216,79 @@ function ChatPage() {
         ? "AUDIO"
         : "DOCUMENT";
 
-      sendMediaMessage({
-        file,
+      // Create a preview URL for images
+      let previewUrl = null;
+      if (fileType === "IMAGE") {
+        previewUrl = URL.createObjectURL(file);
+      }
+
+      // Create optimistic ID
+      const optimisticId = `optimistic-${Date.now()}`;
+
+      // Create optimistic message
+      const optimisticMessage = {
+        id: optimisticId,
+        content: previewUrl || file.name,
         type: fileType,
-        content: "",
-      });
+        senderId: user.id,
+        chatId: chatId,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        isUploading: true,
+        statuses: [],
+      };
+
+      // Add to optimistic messages
+      setOptimisticMessages((prev) => [...prev, optimisticMessage]);
+
+      // Scroll to bottom immediately after sending
+      setTimeout(scrollToBottom, 50);
+
+      // Send actual message
+      try {
+        await sendMediaMessage({
+          file,
+          type: fileType,
+          content: "",
+        });
+
+        // Remove optimistic message after successful send
+        setOptimisticMessages((prev) =>
+          prev.filter((msg) => msg.id !== optimisticId)
+        );
+
+        // Revoke object URL
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+        }
+      } catch (error) {
+        console.log(error);
+
+        // Mark message as failed
+        setOptimisticMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === optimisticId
+              ? { ...msg, error: true, isUploading: false }
+              : msg
+          )
+        );
+      }
     }
   };
+
+  // Combine actual messages with optimistic messages
+  const allMessages = [
+    ...messages,
+    ...optimisticMessages.filter(
+      (optMsg) =>
+        !messages.some(
+          (realMsg) =>
+            optMsg.content === realMsg.content &&
+            Math.abs(new Date(optMsg.createdAt) - new Date(realMsg.createdAt)) <
+              5000
+        )
+    ),
+  ];
 
   // Show empty state when no chat is selected
   if (!chatId) {
@@ -201,29 +340,51 @@ function ChatPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Chat Header */}
-      <ChatHeader chat={chat} user={user} onBack={() => navigate("/chats")} />
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      {/* Chat Header - Fixed height */}
+      <div style={{ flexShrink: 0 }}>
+        <ChatHeader chat={chat} user={user} onBack={() => navigate("/chats")} />
+      </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-hidden">
+      {/* Messages - Scrollable area */}
+      <div
+        ref={messageListContainerRef}
+        style={{
+          flex: "1 1 auto",
+          minHeight: 0,
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
         <MessageList
-          messages={messages || []}
+          messages={allMessages || []}
           chat={chat}
           currentUserId={user?.id}
+          loadMoreMessages={loadMoreMessages}
+          hasMoreMessages={hasMoreMessages}
+          isLoadingMore={isLoadingMore}
         />
       </div>
 
-      {/* Chat Input */}
-      <ChatInput
-        message={message}
-        setMessage={setMessage}
-        handleSendMessage={handleSendMessage}
-        handleKeyDown={handleKeyDown}
-        handleMessageChange={handleMessageChange}
-        handleSendMedia={handleSendMedia}
-        isSending={isSending || isSendingMedia}
-      />
+      {/* Chat Input - Fixed height */}
+      <div style={{ flexShrink: 0 }}>
+        <ChatInput
+          message={message}
+          setMessage={setMessage}
+          handleSendMessage={handleSendMessage}
+          handleKeyDown={handleKeyDown}
+          handleMessageChange={handleMessageChange}
+          handleSendMedia={handleSendMedia}
+          isSending={isSending || isSendingMedia}
+        />
+      </div>
     </div>
   );
 }

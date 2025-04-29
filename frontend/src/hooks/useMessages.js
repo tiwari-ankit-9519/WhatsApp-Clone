@@ -102,11 +102,75 @@ export function useMessages(chatId) {
   });
 
   const reactToMessageMutation = useMutation({
-    mutationFn: ({ messageId, emoji }) =>
-      messageApi.reactToMessage(messageId, emoji),
+    mutationFn: ({ messageId, emoji, previousEmoji }) => {
+      // If emoji is null and previousEmoji exists, we're removing a reaction
+      if (emoji === null && previousEmoji) {
+        // API call to remove reaction
+        return messageApi.removeReactionFromMessage(messageId, previousEmoji);
+      }
+      // Otherwise add/change reaction
+      return messageApi.reactToMessage(messageId, emoji);
+    },
+    onMutate: async ({ messageId, emoji, previousEmoji }) => {
+      // Optimistic update to add/remove reaction
+      queryClient.setQueryData(["messages", chatId], (old) => {
+        if (!old) return old;
+
+        const newPages = old.pages.map((page) => {
+          return {
+            ...page,
+            messages: page.messages.map((msg) => {
+              if (msg.id === messageId) {
+                // Get current reactions or initialize empty array
+                let reactions = [...(msg.reactions || [])];
+
+                // If removing reaction
+                if (emoji === null && previousEmoji) {
+                  reactions = reactions.filter(
+                    (r) =>
+                      !(
+                        r.userId ===
+                          queryClient.getQueryData(["profile"])?.user?.id &&
+                        r.emoji === previousEmoji
+                      )
+                  );
+                }
+                // If adding reaction
+                else {
+                  // Remove any existing reaction from this user
+                  reactions = reactions.filter(
+                    (r) =>
+                      r.userId !==
+                      queryClient.getQueryData(["profile"])?.user?.id
+                  );
+
+                  // Add new reaction
+                  reactions.push({
+                    userId: queryClient.getQueryData(["profile"])?.user?.id,
+                    emoji: emoji,
+                    createdAt: new Date().toISOString(),
+                  });
+                }
+
+                return {
+                  ...msg,
+                  reactions,
+                };
+              }
+              return msg;
+            }),
+          };
+        });
+
+        return {
+          ...old,
+          pages: newPages,
+        };
+      });
+    },
     onSuccess: () => {
       if (isMounted.current) {
-        queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
+        // We don't need to update the UI again as we've already done the optimistic update
       }
     },
     onError: (error) => {
@@ -114,6 +178,8 @@ export function useMessages(chatId) {
         toast.error(
           error.response?.data?.message || "Failed to react to message"
         );
+        // Revert optimistic update by refetching
+        queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
       }
     },
   });
@@ -121,18 +187,30 @@ export function useMessages(chatId) {
   const deleteMessageMutation = useMutation({
     mutationFn: ({ messageId, deleteType }) =>
       messageApi.deleteMessage(messageId, deleteType),
-    onSuccess: (data, variables) => {
-      if (!isMounted.current) return;
-
-      if (variables.deleteType === "FOR_ME") {
+    onMutate: async ({ messageId, deleteType }) => {
+      // Optimistic update for "FOR_ME" deletion
+      if (deleteType === "FOR_ME") {
         queryClient.setQueryData(["messages", chatId], (old) => {
           if (!old) return old;
 
           const newPages = old.pages.map((page) => ({
             ...page,
-            messages: page.messages.filter(
-              (msg) => msg.id !== variables.messageId
-            ),
+            messages:
+              deleteType === "FOR_ME"
+                ? // For "FOR_ME", remove from local state
+                  page.messages.filter((msg) => msg.id !== messageId)
+                : // For "FOR_EVERYONE", mark as deleted
+                  page.messages.map((msg) => {
+                    if (msg.id === messageId) {
+                      return {
+                        ...msg,
+                        deleted: true,
+                        deletedByUserId: queryClient.getQueryData(["profile"])
+                          ?.user?.id,
+                      };
+                    }
+                    return msg;
+                  }),
           }));
 
           return {
@@ -140,7 +218,13 @@ export function useMessages(chatId) {
             pages: newPages,
           };
         });
-      } else {
+      }
+    },
+    onSuccess: (data, variables) => {
+      if (!isMounted.current) return;
+
+      // For "FOR_EVERYONE", we should invalidate queries to get updated message from server
+      if (variables.deleteType === "FOR_EVERYONE") {
         queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
       }
       toast.success(data.message || "Message deleted");
@@ -150,6 +234,8 @@ export function useMessages(chatId) {
         toast.error(
           error.response?.data?.message || "Failed to delete message"
         );
+        // Revert optimistic update by refetching
+        queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
       }
     },
   });
@@ -178,6 +264,11 @@ export function useMessages(chatId) {
   const starMessageMutation = useMutation({
     mutationFn: ({ messageId, note }) =>
       messageApi.starMessage(messageId, note),
+    onMutate: async ({ messageId }) => {
+      // Optimistic update to mark message as starred
+      // No UI change in the messages list, just return for tracking
+      return { messageId };
+    },
     onSuccess: (data) => {
       if (isMounted.current) {
         toast.success(data.message || "Message starred");
@@ -220,8 +311,8 @@ export function useMessages(chatId) {
     loadMoreMessages: fetchNextPage,
     hasMoreMessages: hasNextPage,
     isLoadingMore: isFetchingNextPage,
-    sendMessage: sendMessageMutation.mutate,
-    sendMediaMessage: sendMediaMessageMutation.mutate,
+    sendMessage: sendMessageMutation.mutateAsync,
+    sendMediaMessage: sendMediaMessageMutation.mutateAsync,
     reactToMessage: reactToMessageMutation.mutate,
     deleteMessage: deleteMessageMutation.mutate,
     forwardMessage: forwardMessageMutation.mutate,

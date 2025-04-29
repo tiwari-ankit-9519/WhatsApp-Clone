@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useNotifications } from "../../hooks/useNotification";
-import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs";
+import { useNotifications } from "@/hooks/useNotification";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { MessageSquare, UserPlus, CheckCircle2, XCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useContacts } from "../../hooks/useContacts";
+import { useContacts } from "@/hooks/useContacts";
 
 const NotificationsPopover = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -49,7 +49,7 @@ const NotificationsPopover = ({ children }) => {
             onClick={() => setIsOpen(false)}
           />
 
-          <div className="absolute right-0 z-50 mt-2 w-80 rounded-md shadow-lg bg-card border border-border">
+          <div className="absolute -right-16 z-50 mt-2 w-80 rounded-md shadow-lg bg-card border border-border">
             <div className="p-3 border-b border-border">
               <h3 className="font-semibold">Notifications</h3>
             </div>

@@ -1,14 +1,15 @@
 /* eslint-disable no-unused-vars */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuthContext } from "../../contexts/AuthContext";
 import { useSocketContext } from "../../contexts/SocketContext";
-import { useChats } from "../../hooks/useChats";
-import { useContacts } from "../../hooks/useContacts";
-import { useNotifications } from "../../hooks/useNotification";
+import { useChats } from "@/hooks/useChats";
+import { useContacts } from "@/hooks/useContacts";
+import { useNotifications } from "@/hooks/useNotification";
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import NotificationsPopover from "@/components/NotificationsPopover";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,8 +53,13 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
   const location = useLocation();
   const { user, logout } = useAuthContext();
   const { isConnected } = useSocketContext();
-  const { chats, isChatsLoading, createGroupChat, getOrCreatePrivateChat } =
-    useChats();
+  const {
+    chats,
+    isChatsLoading,
+    createGroupChat,
+    getOrCreatePrivateChat,
+    isCreatingGroupChat,
+  } = useChats();
   const {
     contacts,
     pendingRequests,
@@ -73,6 +79,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [startingChatWithId, setStartingChatWithId] = useState(null);
+  const [globalLoading, setGlobalLoading] = useState(false); // Global loading state
 
   const currentChatId = location.pathname.startsWith("/chats/")
     ? location.pathname.split("/chats/")[1]
@@ -104,16 +111,39 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
     return () => clearTimeout(delayDebounce);
   }, [searchQuery, searchUsers]);
 
+  // Global loading effect
+  useEffect(() => {
+    document.body.style.overflow = globalLoading ? "hidden" : "auto";
+    return () => {
+      document.body.style.overflow = "auto";
+    };
+  }, [globalLoading]);
+
   // Group chat creation
-  const handleCreateGroup = () => {
+  const handleCreateGroup = async () => {
     if (groupName.trim() && selectedContacts.length > 0) {
-      createGroupChat({
-        name: groupName.trim(),
-        participantsIds: selectedContacts.map((contact) => contact.id),
-      });
-      setGroupName("");
-      setSelectedContacts([]);
-      setIsCreatingGroup(false);
+      setGlobalLoading(true);
+      try {
+        const newGroup = await createGroupChat({
+          name: groupName.trim(),
+          participantsIds: selectedContacts.map((contact) => contact.id),
+        });
+
+        // Navigate to the new group chat
+        if (newGroup?.id) {
+          navigate(`/chats/${newGroup.id}`);
+          closeMobileSidebar();
+        }
+
+        // Reset state
+        setGroupName("");
+        setSelectedContacts([]);
+        setIsCreatingGroup(false);
+      } catch (error) {
+        console.error("Failed to create group:", error);
+      } finally {
+        setGlobalLoading(false);
+      }
     }
   };
 
@@ -124,16 +154,18 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
 
   const handleLogout = async () => {
     setShowLogoutConfirm(false);
-    setIsLoggingOut(true);
+    setGlobalLoading(true); // Show the global loader for logout
+
     try {
       await logout();
-    } finally {
-      setIsLoggingOut(false);
-      navigate("/login", { replace: true });
+      // No need to navigate here as the auth context will handle the redirect
+    } catch (error) {
+      console.error("Logout error:", error);
+      setGlobalLoading(false); // Hide loader if there's an error
     }
   };
 
-  // Navigation
+  // Navigation handlers with proper direct navigation
   const navigateToProfile = () => {
     navigate("/profile");
     closeMobileSidebar();
@@ -144,19 +176,36 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
     closeMobileSidebar();
   };
 
-  // Contact request handlers
-  const handleAcceptRequest = (contactId) => {
-    acceptRequest(contactId);
+  const handleFindContactsClick = () => {
+    // Directly navigate to the contacts/find route
+    navigate("/contacts/find");
+    closeMobileSidebar();
   };
 
-  const handleRejectRequest = (contactId) => {
-    rejectRequest(contactId);
+  // Contact request handlers
+  const handleAcceptRequest = async (contactId) => {
+    setGlobalLoading(true);
+    try {
+      await acceptRequest(contactId);
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
+  const handleRejectRequest = async (contactId) => {
+    setGlobalLoading(true);
+    try {
+      await rejectRequest(contactId);
+    } finally {
+      setGlobalLoading(false);
+    }
   };
 
   // Start a chat with a contact
   const startChatWithContact = async (contactId) => {
     try {
       setStartingChatWithId(contactId);
+      setGlobalLoading(true);
       const chat = await getOrCreatePrivateChat(contactId);
       navigate(`/chats/${chat.id}`);
       closeMobileSidebar();
@@ -164,6 +213,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
       console.error("Failed to start chat:", error);
     } finally {
       setStartingChatWithId(null);
+      setGlobalLoading(false);
     }
   };
 
@@ -208,7 +258,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
           otherUserName: otherUser.name,
           otherUserProfilePic: otherUser.profilePic,
           lastMessage: chat.messages?.[0]?.content || "No messages yet",
-          lastMessageTime: chat.messages?.[0]?.createdAt,
+          lastMessageTime: chat.messages?.[0]?.createdAt || chat.updatedAt,
           unreadCount: chat.unreadCount || 0,
         });
       }
@@ -220,7 +270,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
         name: chat.name,
         image: chat.image,
         lastMessage: chat.messages?.[0]?.content || "No messages yet",
-        lastMessageTime: chat.messages?.[0]?.createdAt,
+        lastMessageTime: chat.messages?.[0]?.createdAt || chat.updatedAt,
         unreadCount: chat.unreadCount || 0,
       });
     }
@@ -245,11 +295,11 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
   displayItems.sort((a, b) => {
     // Both are chats
     if (a.type === "CHAT" && b.type === "CHAT") {
-      // If a has a message and b doesn't
+      // If a has a message time and b doesn't
       if (a.lastMessageTime && !b.lastMessageTime) return -1;
-      // If b has a message and a doesn't
+      // If b has a message time and a doesn't
       if (!a.lastMessageTime && b.lastMessageTime) return 1;
-      // If both have messages, sort by time
+      // If both have message times, sort by time (newest first)
       if (a.lastMessageTime && b.lastMessageTime) {
         return new Date(b.lastMessageTime) - new Date(a.lastMessageTime);
       }
@@ -289,14 +339,12 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
 
   return (
     <>
-      {isLoggingOut && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center"
-          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
-        >
+      {/* Global loading overlay */}
+      {globalLoading && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center">
           <div className="bg-background p-6 rounded-lg shadow-lg flex flex-col items-center gap-4">
             <div className="h-12 w-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-lg font-medium">Logging out...</p>
+            <p className="text-lg font-medium">Loading...</p>
           </div>
         </div>
       )}
@@ -328,14 +376,23 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
           </div>
 
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="h-5 w-5" />
-              {notificationCount > 0 && (
-                <span className="absolute top-0 right-0 h-5 w-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
-                  {notificationCount > 99 ? "99+" : notificationCount}
-                </span>
-              )}
-            </Button>
+            <div className="z-50">
+              <NotificationsPopover>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative"
+                  aria-label="Open notifications"
+                >
+                  <Bell className="h-5 w-5" />
+                  {notificationCount > 0 && (
+                    <span className="absolute top-0 right-0 h-5 w-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
+                      {notificationCount > 99 ? "99+" : notificationCount}
+                    </span>
+                  )}
+                </Button>
+              </NotificationsPopover>
+            </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -352,7 +409,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
                   <Users className="mr-2 h-4 w-4" />
                   <span>New Group</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/contacts/find")}>
+                <DropdownMenuItem onClick={handleFindContactsClick}>
                   <UserPlus className="mr-2 h-4 w-4" />
                   <span>Find Contacts</span>
                 </DropdownMenuItem>
@@ -628,7 +685,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
                   variant="outline"
                   size="sm"
                   className="mt-2"
-                  onClick={() => navigate("/contacts/find")}
+                  onClick={handleFindContactsClick}
                 >
                   Find contacts
                 </Button>
@@ -641,12 +698,24 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
           </div>
         </div>
 
-        <Button
-          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg md:hidden"
-          onClick={() => setIsCreatingGroup(true)}
-        >
-          <Plus className="h-6 w-6" />
-        </Button>
+        {/* Create a direct action button for Find Contacts on mobile */}
+        <div className="fixed bottom-6 right-6 flex flex-col gap-3 md:hidden">
+          <Button
+            className="h-14 w-14 rounded-full shadow-lg bg-primary/90"
+            onClick={handleFindContactsClick}
+            title="Find Contacts"
+          >
+            <UserPlus className="h-6 w-6" />
+          </Button>
+
+          <Button
+            className="h-14 w-14 rounded-full shadow-lg"
+            onClick={() => setIsCreatingGroup(true)}
+            title="Create Group"
+          >
+            <Plus className="h-6 w-6" />
+          </Button>
+        </div>
 
         <Dialog open={isCreatingGroup} onOpenChange={setIsCreatingGroup}>
           <DialogContent>
@@ -737,14 +806,27 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
                   setGroupName("");
                   setSelectedContacts([]);
                 }}
+                disabled={isCreatingGroupChat || globalLoading}
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleCreateGroup}
-                disabled={!groupName.trim() || selectedContacts.length === 0}
+                disabled={
+                  !groupName.trim() ||
+                  selectedContacts.length === 0 ||
+                  isCreatingGroupChat ||
+                  globalLoading
+                }
               >
-                Create Group
+                {isCreatingGroupChat ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2"></div>
+                    Creating...
+                  </>
+                ) : (
+                  "Create Group"
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
