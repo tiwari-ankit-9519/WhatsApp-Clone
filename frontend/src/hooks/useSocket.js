@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getSocket,
@@ -13,16 +13,29 @@ export function useSocket() {
   const [typingUsers, setTypingUsers] = useState({});
   const queryClient = useQueryClient();
 
+  // Use refs to track mounted state and prevent memory leaks
+  const isMounted = useRef(true);
+  // Track active chat rooms to prevent duplicate joins
+  const activeChats = useRef(new Set());
+
   useEffect(() => {
+    // Set mounted flag
+    isMounted.current = true;
+
+    // Get socket instance
     const socket = getSocket();
     if (!socket) return;
 
     const onConnect = () => {
-      setIsConnected(true);
+      if (isMounted.current) {
+        setIsConnected(true);
+      }
     };
 
     const onDisconnect = () => {
-      setIsConnected(false);
+      if (isMounted.current) {
+        setIsConnected(false);
+      }
     };
 
     const onNewMessage = (data) => {
@@ -42,6 +55,8 @@ export function useSocket() {
     };
 
     const onUserTyping = ({ userId, chatId, isTyping }) => {
+      if (!isMounted.current) return;
+
       setTypingUsers((prev) => {
         const chatTyping = prev[chatId] || {};
         if (isTyping) {
@@ -92,82 +107,116 @@ export function useSocket() {
       });
     };
 
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-    socket.on("new-message", onNewMessage);
-    socket.on("message-deleted", onMessageDeleted);
-    socket.on("message-reaction", onMessageReaction);
-    socket.on("new-chat", onNewChat);
-    socket.on("user-typing", onUserTyping);
-    socket.on("contact-request-accepted", onContactRequestAccepted);
-    socket.on("new-contact-request", onNewContactRequest);
-    socket.on("messages-read", onMessagesRead);
+    // Only attach event listeners if socket exists
+    if (socket) {
+      socket.on("connect", onConnect);
+      socket.on("disconnect", onDisconnect);
+      socket.on("new-message", onNewMessage);
+      socket.on("message-deleted", onMessageDeleted);
+      socket.on("message-reaction", onMessageReaction);
+      socket.on("new-chat", onNewChat);
+      socket.on("user-typing", onUserTyping);
+      socket.on("contact-request-accepted", onContactRequestAccepted);
+      socket.on("new-contact-request", onNewContactRequest);
+      socket.on("messages-read", onMessagesRead);
 
-    setIsConnected(socket.connected);
+      setIsConnected(socket.connected);
+    }
 
     return () => {
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-      socket.off("new-message", onNewMessage);
-      socket.off("message-deleted", onMessageDeleted);
-      socket.off("message-reaction", onMessageReaction);
-      socket.off("new-chat", onNewChat);
-      socket.off("user-typing", onUserTyping);
-      socket.off("contact-request-accepted", onContactRequestAccepted);
-      socket.off("new-contact-request", onNewContactRequest);
-      socket.off("messages-read", onMessagesRead);
+      isMounted.current = false;
+
+      if (socket) {
+        activeChats.current.forEach((chatId) => {
+          leaveChat(chatId);
+        });
+
+        socket.off("connect", onConnect);
+        socket.off("disconnect", onDisconnect);
+        socket.off("new-message", onNewMessage);
+        socket.off("message-deleted", onMessageDeleted);
+        socket.off("message-reaction", onMessageReaction);
+        socket.off("new-chat", onNewChat);
+        socket.off("user-typing", onUserTyping);
+        socket.off("contact-request-accepted", onContactRequestAccepted);
+        socket.off("new-contact-request", onNewContactRequest);
+        socket.off("messages-read", onMessagesRead);
+      }
+
+      // Clear the active chats set
+      activeChats.current.clear();
     };
   }, [queryClient]);
 
   useEffect(() => {
     const typingTimeout = 5000; // 5 seconds
-    const interval = setInterval(() => {
-      const now = Date.now();
-      setTypingUsers((prev) => {
-        const updated = { ...prev };
-        let changed = false;
+    let intervalId;
 
-        Object.keys(updated).forEach((chatId) => {
-          const chatTypers = updated[chatId];
-          const newChatTypers = {};
-          let chatChanged = false;
+    if (isMounted.current) {
+      intervalId = setInterval(() => {
+        const now = Date.now();
+        setTypingUsers((prev) => {
+          const updated = { ...prev };
+          let changed = false;
 
-          Object.entries(chatTypers).forEach(([userId, timestamp]) => {
-            if (now - timestamp < typingTimeout) {
-              newChatTypers[userId] = timestamp;
-            } else {
-              chatChanged = true;
+          Object.keys(updated).forEach((chatId) => {
+            const chatTypers = updated[chatId];
+            const newChatTypers = {};
+            let chatChanged = false;
+
+            Object.entries(chatTypers).forEach(([userId, timestamp]) => {
+              if (now - timestamp < typingTimeout) {
+                newChatTypers[userId] = timestamp;
+              } else {
+                chatChanged = true;
+              }
+            });
+
+            if (chatChanged) {
+              updated[chatId] = newChatTypers;
+              changed = true;
             }
           });
 
-          if (chatChanged) {
-            updated[chatId] = newChatTypers;
-            changed = true;
-          }
+          return changed ? updated : prev;
         });
+      }, 1000);
+    }
 
-        return changed ? updated : prev;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
   }, []);
 
-  const joinChatRoom = (chatId) => {
+  // Use useCallback to memoize these functions to prevent recreation on each render
+  const joinChatRoom = useCallback((chatId) => {
+    if (!chatId || activeChats.current.has(chatId)) return;
+
     joinChat(chatId);
-  };
+    activeChats.current.add(chatId);
+  }, []);
 
-  const leaveChatRoom = (chatId) => {
+  const leaveChatRoom = useCallback((chatId) => {
+    if (!chatId || !activeChats.current.has(chatId)) return;
+
     leaveChat(chatId);
-  };
+    activeChats.current.delete(chatId);
+  }, []);
 
-  const sendTypingStatus = (chatId, isTyping) => {
+  const sendTypingStatus = useCallback((chatId, isTyping) => {
+    if (!chatId) return;
     emitTyping(chatId, isTyping);
-  };
+  }, []);
 
-  const getTypingUsers = (chatId) => {
-    return Object.keys(typingUsers[chatId] || {});
-  };
+  const getTypingUsers = useCallback(
+    (chatId) => {
+      if (!chatId) return [];
+      return Object.keys(typingUsers[chatId] || {});
+    },
+    [typingUsers]
+  );
 
   return {
     isConnected,

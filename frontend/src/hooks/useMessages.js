@@ -5,9 +5,19 @@ import {
 } from "@tanstack/react-query";
 import { messageApi } from "../lib/api/messageApi";
 import { toast } from "react-hot-toast";
+import { useRef, useEffect } from "react";
 
 export function useMessages(chatId) {
   const queryClient = useQueryClient();
+  const isMounted = useRef(true);
+
+  // Set mounted flag and clean up on unmount
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const {
     data,
@@ -20,12 +30,15 @@ export function useMessages(chatId) {
     queryKey: ["messages", chatId],
     queryFn: ({ pageParam = 1 }) => messageApi.getMessages(chatId, pageParam),
     getNextPageParam: (lastPage) => {
-      if (lastPage.pagination?.hasMore) {
+      if (lastPage?.pagination?.hasMore) {
         return lastPage.pagination.page + 1;
       }
       return undefined;
     },
-    enabled: !!chatId,
+    enabled: !!chatId, // Only run query if chatId exists
+    staleTime: 1000 * 60, // 1 minute
+    refetchOnWindowFocus: false,
+    retry: 1, // Only retry once
   });
 
   const allMessages = data?.pages.flatMap((page) => page.messages) || [];
@@ -34,6 +47,8 @@ export function useMessages(chatId) {
     mutationFn: ({ content, type, parentId }) =>
       messageApi.sendMessage(chatId, content, type, parentId),
     onSuccess: (newMessage) => {
+      if (!isMounted.current) return;
+
       queryClient.setQueryData(["messages", chatId], (old) => {
         if (!old)
           return { pages: [{ messages: [newMessage] }], pageParams: [1] };
@@ -51,7 +66,9 @@ export function useMessages(chatId) {
       });
     },
     onError: (error) => {
-      toast.error(error.response?.data?.message || "Failed to send message");
+      if (isMounted.current) {
+        toast.error(error.response?.data?.message || "Failed to send message");
+      }
     },
   });
 
@@ -59,6 +76,8 @@ export function useMessages(chatId) {
     mutationFn: ({ file, content, type }) =>
       messageApi.sendMediaMessage(chatId, file, type, content),
     onSuccess: (newMessage) => {
+      if (!isMounted.current) return;
+
       queryClient.setQueryData(["messages", chatId], (old) => {
         if (!old)
           return { pages: [{ messages: [newMessage] }], pageParams: [1] };
@@ -76,7 +95,9 @@ export function useMessages(chatId) {
       });
     },
     onError: (error) => {
-      toast.error(error.response?.data?.message || "Failed to send media");
+      if (isMounted.current) {
+        toast.error(error.response?.data?.message || "Failed to send media");
+      }
     },
   });
 
@@ -84,12 +105,16 @@ export function useMessages(chatId) {
     mutationFn: ({ messageId, emoji }) =>
       messageApi.reactToMessage(messageId, emoji),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
+      if (isMounted.current) {
+        queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
+      }
     },
     onError: (error) => {
-      toast.error(
-        error.response?.data?.message || "Failed to react to message"
-      );
+      if (isMounted.current) {
+        toast.error(
+          error.response?.data?.message || "Failed to react to message"
+        );
+      }
     },
   });
 
@@ -97,6 +122,8 @@ export function useMessages(chatId) {
     mutationFn: ({ messageId, deleteType }) =>
       messageApi.deleteMessage(messageId, deleteType),
     onSuccess: (data, variables) => {
+      if (!isMounted.current) return;
+
       if (variables.deleteType === "FOR_ME") {
         queryClient.setQueryData(["messages", chatId], (old) => {
           if (!old) return old;
@@ -119,7 +146,11 @@ export function useMessages(chatId) {
       toast.success(data.message || "Message deleted");
     },
     onError: (error) => {
-      toast.error(error.response?.data?.message || "Failed to delete message");
+      if (isMounted.current) {
+        toast.error(
+          error.response?.data?.message || "Failed to delete message"
+        );
+      }
     },
   });
 
@@ -127,6 +158,8 @@ export function useMessages(chatId) {
     mutationFn: ({ messageId, chatIds }) =>
       messageApi.forwardMessage(messageId, chatIds),
     onSuccess: (data) => {
+      if (!isMounted.current) return;
+
       toast.success(`Message forwarded to ${data.totalForwarded} chats`);
       if (data.failedForwards.length > 0) {
         toast.error(`Failed to forward to ${data.failedForwards.length} chats`);
@@ -134,7 +167,11 @@ export function useMessages(chatId) {
       queryClient.invalidateQueries({ queryKey: ["chats"] });
     },
     onError: (error) => {
-      toast.error(error.response?.data?.message || "Failed to forward message");
+      if (isMounted.current) {
+        toast.error(
+          error.response?.data?.message || "Failed to forward message"
+        );
+      }
     },
   });
 
@@ -142,22 +179,32 @@ export function useMessages(chatId) {
     mutationFn: ({ messageId, note }) =>
       messageApi.starMessage(messageId, note),
     onSuccess: (data) => {
-      toast.success(data.message || "Message starred");
-      queryClient.invalidateQueries({ queryKey: ["starredMessages"] });
+      if (isMounted.current) {
+        toast.success(data.message || "Message starred");
+        queryClient.invalidateQueries({ queryKey: ["starredMessages"] });
+      }
     },
     onError: (error) => {
-      toast.error(error.response?.data?.message || "Failed to star message");
+      if (isMounted.current) {
+        toast.error(error.response?.data?.message || "Failed to star message");
+      }
     },
   });
 
   const unstarMessageMutation = useMutation({
     mutationFn: (messageId) => messageApi.unstarMessage(messageId),
     onSuccess: (data) => {
-      toast.success(data.message || "Message unstarred");
-      queryClient.invalidateQueries({ queryKey: ["starredMessages"] });
+      if (isMounted.current) {
+        toast.success(data.message || "Message unstarred");
+        queryClient.invalidateQueries({ queryKey: ["starredMessages"] });
+      }
     },
     onError: (error) => {
-      toast.error(error.response?.data?.message || "Failed to unstar message");
+      if (isMounted.current) {
+        toast.error(
+          error.response?.data?.message || "Failed to unstar message"
+        );
+      }
     },
   });
 
@@ -195,6 +242,16 @@ export function useMessages(chatId) {
 }
 
 export function useStarredMessages() {
+  const isMounted = useRef(true);
+
+  // Set mounted flag and clean up on unmount
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const {
     data,
     isLoading,
@@ -206,11 +263,13 @@ export function useStarredMessages() {
     queryKey: ["starredMessages"],
     queryFn: ({ pageParam = 1 }) => messageApi.getStarredMessages(pageParam),
     getNextPageParam: (lastPage) => {
-      if (lastPage.pagination?.hasMore) {
+      if (lastPage?.pagination?.hasMore) {
         return lastPage.pagination.page + 1;
       }
       return undefined;
     },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    refetchOnWindowFocus: false,
   });
 
   const starredMessages =

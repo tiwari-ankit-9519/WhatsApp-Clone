@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useAuthContext } from "../../contexts/AuthContext";
 import { useMessages } from "../../hooks/useMessages";
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar";
@@ -27,27 +27,29 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
     message.chatId
   );
   const [showActions, setShowActions] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   // Check if this message should show sender info (for grouping UI)
-  const shouldShowSender = () => {
+  const shouldShowSender = useCallback(() => {
     if (!showSender) return false;
     if (!previousMessage) return true;
 
     return previousMessage.senderId !== message.senderId;
-  };
+  }, [showSender, previousMessage, message.senderId]);
 
   // Get sender from chat users
-  const getSender = () => {
+  const getSender = useCallback(() => {
     if (isOwn) return user;
 
     const sender = chat.users.find((u) => u.user.id === message.senderId)?.user;
     return sender || { name: "Unknown", profilePic: null };
-  };
+  }, [isOwn, user, chat.users, message.senderId]);
 
   const sender = getSender();
 
   // Get message status icon
-  const getStatusIcon = () => {
+  const getStatusIcon = useCallback(() => {
     if (!isOwn) return null;
 
     const status = message.statuses?.find((s) => s.userId !== user.id)?.status;
@@ -61,10 +63,10 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
     }
 
     return null;
-  };
+  }, [isOwn, message.statuses, user.id]);
 
   // Get content based on message type
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
     switch (message.type) {
       case "IMAGE":
       case "VIDEO":
@@ -75,13 +77,14 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
       default:
         return <p className="whitespace-pre-wrap">{message.content}</p>;
     }
-  };
+  }, [message]);
 
   const handleDelete = () => {
     deleteMessage({
       messageId: message.id,
       deleteType: "FOR_ME",
     });
+    setDropdownOpen(false);
   };
 
   const handleReaction = (emoji) => {
@@ -89,19 +92,30 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
       messageId: message.id,
       emoji,
     });
+    setDropdownOpen(false);
   };
 
   const handleStarMessage = () => {
     starMessage({
       messageId: message.id,
     });
+    setDropdownOpen(false);
+  };
+
+  // Track dropdown open state
+  const handleOpenChange = (open) => {
+    setDropdownOpen(open);
   };
 
   return (
     <div
       className={`flex mb-2 ${isOwn ? "justify-end" : "justify-start"}`}
       onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => setShowActions(false)}
+      onMouseLeave={() => {
+        if (!dropdownOpen) {
+          setShowActions(false);
+        }
+      }}
     >
       <div
         className={`flex ${
@@ -167,9 +181,10 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
                   : "right-0 translate-x-full pr-1"
               }`}
             >
-              <DropdownMenu>
+              <DropdownMenu onOpenChange={handleOpenChange} open={dropdownOpen}>
                 <DropdownMenuTrigger asChild>
                   <Button
+                    ref={dropdownRef}
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6 rounded-full bg-background border border-border shadow-sm"
@@ -191,11 +206,11 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
                     <Star className="mr-2 h-4 w-4" />
                     <span>Star message</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setDropdownOpen(false)}>
                     <Reply className="mr-2 h-4 w-4" />
                     <span>Reply</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setDropdownOpen(false)}>
                     <Forward className="mr-2 h-4 w-4" />
                     <span>Forward</span>
                   </DropdownMenuItem>
