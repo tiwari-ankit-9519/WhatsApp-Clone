@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthContext } from "../../contexts/AuthContext";
@@ -7,14 +8,15 @@ import { useSocketContext } from "../../contexts/SocketContext";
 import MessageList from "../../components/messages/MessageList";
 import ChatInput from "../../components/chat/ChatInput";
 import ChatHeader from "../../components/chat/ChatHeader";
+import { Button } from "../../components/ui/button";
+import { Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { toast } from "react-hot-toast";
 
 function ChatPage() {
   const { chatId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuthContext();
   const { useChatDetails, chats } = useChats();
-
-  // Get messages and all related message functions
   const {
     messages,
     sendMessage,
@@ -26,73 +28,95 @@ function ChatPage() {
     isLoadingMore,
     isLoading: isMessagesLoading,
   } = useMessages(chatId);
+  const {
+    isConnected,
+    socketError,
+    joinChatRoom,
+    leaveChatRoom,
+    sendTypingStatus,
+    retryConnection,
+  } = useSocketContext();
 
-  // Get socket-related functions
-  const { joinChatRoom, leaveChatRoom, sendTypingStatus } = useSocketContext();
-
-  // Local state
   const [message, setMessage] = useState("");
   const [typingTimeout, setTypingTimeout] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [optimisticMessages, setOptimisticMessages] = useState([]);
   const [initialScrollComplete, setInitialScrollComplete] = useState(false);
+  const [showReconnect, setShowReconnect] = useState(false);
 
-  // Refs
   const hasMarkedAsRead = useRef(false);
   const messageListContainerRef = useRef(null);
   const initialLoadRef = useRef(false);
+  const connectionTimeout = useRef(null);
+  const scrollToBottomTimeoutRef = useRef(null);
 
-  // Get chat details
   const { chat, isLoading: isChatLoading, markAsRead } = useChatDetails(chatId);
 
-  // Join chat room
+  useEffect(() => {
+    if (!isConnected) {
+      connectionTimeout.current = setTimeout(() => {
+        setShowReconnect(true);
+      }, 5000);
+    } else {
+      setShowReconnect(false);
+      if (connectionTimeout.current) {
+        clearTimeout(connectionTimeout.current);
+      }
+    }
+
+    return () => {
+      if (connectionTimeout.current) {
+        clearTimeout(connectionTimeout.current);
+      }
+    };
+  }, [isConnected]);
+
   const handleJoinChat = useCallback(() => {
     if (chatId) {
       joinChatRoom(chatId);
     }
   }, [chatId, joinChatRoom]);
 
-  // Leave chat room
   const handleLeaveChat = useCallback(() => {
     if (chatId) {
       leaveChatRoom(chatId);
     }
   }, [chatId, leaveChatRoom]);
 
-  // Reset state and refs when chat changes
   useEffect(() => {
     hasMarkedAsRead.current = false;
     setOptimisticMessages([]);
     setMessage("");
     setInitialScrollComplete(false);
     initialLoadRef.current = false;
+
+    if (scrollToBottomTimeoutRef.current) {
+      clearTimeout(scrollToBottomTimeoutRef.current);
+    }
   }, [chatId]);
 
-  // Join and leave chat room
   useEffect(() => {
     if (!chatId) return;
-
     handleJoinChat();
     return () => {
       handleLeaveChat();
     };
   }, [chatId, handleJoinChat, handleLeaveChat]);
 
-  // Mark messages as read
   useEffect(() => {
     if (
       chatId &&
       chat &&
       markAsRead &&
       !hasMarkedAsRead.current &&
-      chat.unreadCount > 0
+      chat.unreadCount > 0 &&
+      isConnected
     ) {
       markAsRead();
       hasMarkedAsRead.current = true;
     }
-  }, [chatId, chat, markAsRead]);
+  }, [chatId, chat, markAsRead, isConnected]);
 
-  // Scroll to bottom directly (not relying on child components)
   const scrollToBottom = useCallback(
     (forced = false) => {
       if (messageListContainerRef.current) {
@@ -110,61 +134,56 @@ function ChatPage() {
     [initialScrollComplete]
   );
 
-  // Initial scroll to bottom when messages load
   useEffect(() => {
-    // Only run this once when messages have loaded
-    if (messages.length > 0 && !isMessagesLoading && !initialLoadRef.current) {
-      initialLoadRef.current = true;
+    if (messages.length > 0 && !isMessagesLoading) {
+      if (scrollToBottomTimeoutRef.current) {
+        clearTimeout(scrollToBottomTimeoutRef.current);
+      }
 
-      // Schedule multiple scroll attempts to ensure it works
-      const scrollAttempts = [50, 150, 300, 500, 1000];
-
-      scrollAttempts.forEach((delay) => {
-        setTimeout(() => {
-          scrollToBottom(true);
-        }, delay);
-      });
+      scrollToBottomTimeoutRef.current = setTimeout(() => {
+        scrollToBottom(true);
+      }, 100);
     }
   }, [messages, isMessagesLoading, scrollToBottom]);
 
-  // Scroll to bottom when new messages are added
   useEffect(() => {
-    if (
-      (messages.length > 0 || optimisticMessages.length > 0) &&
-      initialScrollComplete
-    ) {
-      // Use multiple timeouts to ensure DOM is updated
-      setTimeout(scrollToBottom, 50);
-      setTimeout(scrollToBottom, 150);
-    }
-  }, [
-    messages.length,
-    optimisticMessages.length,
-    scrollToBottom,
-    initialScrollComplete,
-  ]);
+    const messageReceived = messages.length > 0;
+    const newMessage = optimisticMessages.length > 0;
 
-  // Handle message input change
+    if ((messageReceived || newMessage) && chatId) {
+      if (scrollToBottomTimeoutRef.current) {
+        clearTimeout(scrollToBottomTimeoutRef.current);
+      }
+
+      scrollToBottomTimeoutRef.current = setTimeout(() => {
+        scrollToBottom(true);
+      }, 100);
+    }
+
+    return () => {
+      if (scrollToBottomTimeoutRef.current) {
+        clearTimeout(scrollToBottomTimeoutRef.current);
+      }
+    };
+  }, [messages.length, optimisticMessages.length, chatId, scrollToBottom]);
+
   const handleMessageChange = (e) => {
     setMessage(e.target.value);
 
-    if (!chatId) return;
+    if (!chatId || !isConnected) return;
 
-    // Emit typing status
     if (!isTyping) {
       setIsTyping(true);
       sendTypingStatus(chatId, true);
     }
 
-    // Clear previous timeout
     if (typingTimeout) {
       clearTimeout(typingTimeout);
     }
 
-    // Set new timeout to stop typing
     const timeout = setTimeout(() => {
       setIsTyping(false);
-      if (chatId) {
+      if (chatId && isConnected) {
         sendTypingStatus(chatId, false);
       }
     }, 2000);
@@ -172,19 +191,24 @@ function ChatPage() {
     setTypingTimeout(timeout);
   };
 
-  // Clean up typing timeout on unmount
   useEffect(() => {
     return () => {
       if (typingTimeout) {
         clearTimeout(typingTimeout);
       }
+      if (scrollToBottomTimeoutRef.current) {
+        clearTimeout(scrollToBottomTimeoutRef.current);
+      }
     };
   }, [typingTimeout]);
 
-  // Send message with optimistic update
   const handleSendMessage = async () => {
     if (message.trim() && chatId) {
-      // Create optimistic message
+      if (!isConnected) {
+        toast.error("Unable to send message. Please check your connection.");
+        return;
+      }
+
       const optimisticId = `optimistic-${Date.now()}`;
       const optimisticMessage = {
         id: optimisticId,
@@ -197,47 +221,36 @@ function ChatPage() {
         statuses: [],
       };
 
-      // Add to optimistic messages
       setOptimisticMessages((prev) => [...prev, optimisticMessage]);
-
-      // Clear input field immediately for better UX
       setMessage("");
-
-      // Reset typing status
       setIsTyping(false);
-      if (chatId) {
+
+      if (chatId && isConnected) {
         sendTypingStatus(chatId, false);
       }
+
       if (typingTimeout) {
         clearTimeout(typingTimeout);
       }
 
-      // Scroll to bottom immediately after sending
-      setTimeout(scrollToBottom, 50);
-      setTimeout(scrollToBottom, 150);
+      scrollToBottom(true);
 
-      // Send actual message
       try {
         await sendMessage({ content: optimisticMessage.content });
-
-        // Remove optimistic message after successful send
         setOptimisticMessages((prev) =>
           prev.filter((msg) => msg.id !== optimisticId)
         );
       } catch (error) {
-        console.log(error);
-
-        // Mark message as failed
         setOptimisticMessages((prev) =>
           prev.map((msg) =>
             msg.id === optimisticId ? { ...msg, error: true } : msg
           )
         );
+        toast.error("Failed to send message. Please try again.");
       }
     }
   };
 
-  // Handle key press to send message
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -245,25 +258,25 @@ function ChatPage() {
     }
   };
 
-  // Handle media attachment upload with optimistic update
   const handleSendMedia = async (file) => {
     if (file && chatId) {
+      if (!isConnected) {
+        toast.error("Unable to send media. Please check your connection.");
+        return;
+      }
+
       const fileType = file.type.startsWith("image/")
         ? "IMAGE"
         : file.type.startsWith("audio/")
         ? "AUDIO"
         : "DOCUMENT";
-
-      // Create a preview URL for images
       let previewUrl = null;
+
       if (fileType === "IMAGE") {
         previewUrl = URL.createObjectURL(file);
       }
 
-      // Create optimistic ID
       const optimisticId = `optimistic-${Date.now()}`;
-
-      // Create optimistic message
       const optimisticMessage = {
         id: optimisticId,
         content: previewUrl || file.name,
@@ -276,14 +289,9 @@ function ChatPage() {
         statuses: [],
       };
 
-      // Add to optimistic messages
       setOptimisticMessages((prev) => [...prev, optimisticMessage]);
+      scrollToBottom(true);
 
-      // Scroll to bottom immediately after sending
-      setTimeout(scrollToBottom, 50);
-      setTimeout(scrollToBottom, 150);
-
-      // Send actual message
       try {
         await sendMediaMessage({
           file,
@@ -291,19 +299,14 @@ function ChatPage() {
           content: "",
         });
 
-        // Remove optimistic message after successful send
         setOptimisticMessages((prev) =>
           prev.filter((msg) => msg.id !== optimisticId)
         );
 
-        // Revoke object URL
         if (previewUrl) {
           URL.revokeObjectURL(previewUrl);
         }
       } catch (error) {
-        console.log(error);
-
-        // Mark message as failed
         setOptimisticMessages((prev) =>
           prev.map((msg) =>
             msg.id === optimisticId
@@ -311,16 +314,20 @@ function ChatPage() {
               : msg
           )
         );
+        toast.error("Failed to send media. Please try again.");
       }
     }
   };
 
-  // Force scroll to bottom button handler
   const handleForceScrollToBottom = () => {
     scrollToBottom(true);
   };
 
-  // Combine actual messages with optimistic messages
+  const handleReconnect = () => {
+    retryConnection();
+    toast.info("Attempting to reconnect...");
+  };
+
   const allMessages = [
     ...messages,
     ...optimisticMessages.filter(
@@ -388,11 +395,41 @@ function ChatPage() {
         flexDirection: "column",
         height: "100%",
         overflow: "hidden",
+        position: "relative",
       }}
     >
       <div style={{ flexShrink: 0 }}>
         <ChatHeader chat={chat} user={user} onBack={() => navigate("/chats")} />
       </div>
+
+      {(!isConnected || socketError) && (
+        <div
+          className={`px-4 py-2 ${
+            socketError
+              ? "bg-destructive/10 text-destructive"
+              : "bg-yellow-500/10 text-yellow-500"
+          } flex items-center justify-between`}
+        >
+          <div className="flex items-center gap-2">
+            <WifiOff className="h-4 w-4" />
+            <span className="text-sm">
+              {socketError ||
+                "Connection lost. Messages may not be delivered in real time."}
+            </span>
+          </div>
+          {showReconnect && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleReconnect}
+              className="text-xs"
+            >
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Reconnect
+            </Button>
+          )}
+        </div>
+      )}
 
       <div
         ref={messageListContainerRef}
@@ -436,6 +473,13 @@ function ChatPage() {
         )}
       </div>
 
+      {isConnected && (
+        <div className="absolute bottom-20 right-4 bg-green-500/90 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 shadow-md opacity-70">
+          <Wifi className="h-3 w-3" />
+          <span>Online</span>
+        </div>
+      )}
+
       <div style={{ flexShrink: 0 }}>
         <ChatInput
           message={message}
@@ -445,6 +489,7 @@ function ChatPage() {
           handleMessageChange={handleMessageChange}
           handleSendMedia={handleSendMedia}
           isSending={isSending || isSendingMedia}
+          isOffline={!isConnected}
         />
       </div>
     </div>

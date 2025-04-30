@@ -11,19 +11,20 @@ const MessageList = ({
   hasMoreMessages,
   isLoadingMore,
   onScrollToBottomRequest,
+  scrollTrigger,
 }) => {
   const scrollAreaRef = useRef(null);
   const viewportRef = useRef(null);
-  const previousHeightRef = useRef(0);
+  const prevBottomDistance = useRef(0);
   const isLoadingRef = useRef(false);
+  const isAtBottomRef = useRef(true);
   const { getTypingUsers } = useSocketContext();
 
-  // Sort messages by creation date (oldest to newest)
   const sortedMessages = [...messages].sort(
     (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
   );
 
-  // Handle scrolling when loading more messages
+  // Handle loading more messages when scrolling to top
   useEffect(() => {
     const handleScroll = async () => {
       if (
@@ -35,20 +36,27 @@ const MessageList = ({
         return;
       }
 
-      // If scrolled near the top, load more messages
       if (viewportRef.current.scrollTop < 50) {
         isLoadingRef.current = true;
-        previousHeightRef.current = viewportRef.current.scrollHeight;
+        prevBottomDistance.current =
+          viewportRef.current.scrollHeight - viewportRef.current.scrollTop;
 
         try {
           await loadMoreMessages();
         } finally {
-          // Set a timeout to allow React to render the new messages
           setTimeout(() => {
             isLoadingRef.current = false;
           }, 300);
         }
       }
+
+      // Check if user is at bottom of scroll area
+      const isAtBottom =
+        viewportRef.current.scrollHeight -
+          viewportRef.current.clientHeight -
+          viewportRef.current.scrollTop <
+        10;
+      isAtBottomRef.current = isAtBottom;
     };
 
     const viewport = viewportRef.current;
@@ -60,41 +68,55 @@ const MessageList = ({
 
   // Maintain scroll position when loading older messages
   useEffect(() => {
-    if (previousHeightRef.current > 0 && viewportRef.current) {
+    if (prevBottomDistance.current > 0 && viewportRef.current) {
       setTimeout(() => {
         if (viewportRef.current) {
           const newHeight = viewportRef.current.scrollHeight;
-          const newPosition = newHeight - previousHeightRef.current;
+          const newPosition = newHeight - prevBottomDistance.current;
 
           if (newPosition > 0) {
             viewportRef.current.scrollTop = newPosition;
-            previousHeightRef.current = 0;
+            prevBottomDistance.current = 0;
           }
         }
       }, 50);
     }
   }, [messages.length]);
 
-  // Scroll to bottom when requested
-  const scrollToBottom = () => {
+  // Automatic initial scroll to bottom
+  useEffect(() => {
+    if (viewportRef.current && messages.length > 0) {
+      setTimeout(() => {
+        scrollToBottom(false);
+      }, 100);
+    }
+  }, []);
+
+  // Scroll to bottom when scrollTrigger changes
+  useEffect(() => {
+    if (scrollTrigger && viewportRef.current) {
+      scrollToBottom(false);
+    }
+  }, [scrollTrigger]);
+
+  // Scroll to bottom utility function
+  const scrollToBottom = (smooth = true) => {
     if (viewportRef.current) {
-      // Use smooth scrolling for manual requests
       viewportRef.current.scrollTo({
         top: viewportRef.current.scrollHeight,
-        behavior: "smooth",
+        behavior: smooth ? "smooth" : "auto",
       });
     }
   };
 
-  // Execute scroll to bottom when requested via props
+  // Handle scroll to bottom request
   useEffect(() => {
     if (onScrollToBottomRequest) {
-      // This effect runs when the parent component wants to scroll to bottom
-      scrollToBottom();
+      scrollToBottom(true);
     }
   }, [onScrollToBottomRequest]);
 
-  // Group messages by date
+  // Group messages by date for display
   const groupMessagesByDate = () => {
     const groups = {};
 
@@ -135,13 +157,13 @@ const MessageList = ({
     }
   };
 
-  // Find typing user names for display
+  // Get typing users for typing indicator
   const getTypingUserNames = () => {
     if (!typingUsers.length) return null;
 
     return chat.users
       .filter(
-        (u) => typingUsers.includes(u.userId) && u.userId !== currentUserId
+        (u) => typingUsers.includes(u.user.id) && u.user.id !== currentUserId
       )
       .map((u) => u.user.name)
       .join(", ");
@@ -149,6 +171,7 @@ const MessageList = ({
 
   const typingUserNames = getTypingUserNames();
 
+  // Empty state when no messages
   if (sortedMessages.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-y-auto bg-accent/10 h-full">
@@ -185,7 +208,6 @@ const MessageList = ({
         viewportRef={viewportRef}
       >
         <div className="p-4 bg-accent/10">
-          {/* Loading indicator for infinite scroll */}
           {isLoadingMore && (
             <div className="flex justify-center py-2 mb-2">
               <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
@@ -194,14 +216,12 @@ const MessageList = ({
 
           {Object.keys(messageGroups).map((date) => (
             <div key={date}>
-              {/* Date header */}
               <div className="flex justify-center my-4">
                 <div className="px-3 py-1 bg-accent/50 rounded-full text-xs text-muted-foreground">
                   {formatDate(date)}
                 </div>
               </div>
 
-              {/* Messages in this date group */}
               {messageGroups[date].map((message, index) => (
                 <MessageItem
                   key={message.id || `temp-${message.createdAt}`}
@@ -217,7 +237,6 @@ const MessageList = ({
             </div>
           ))}
 
-          {/* Typing indicator */}
           {typingUserNames && (
             <div className="flex px-4 py-2 text-sm text-muted-foreground">
               <div className="bg-card px-3 py-2 rounded-lg shadow-sm">
@@ -243,7 +262,6 @@ const MessageList = ({
             </div>
           )}
 
-          {/* Extra space at the bottom to ensure messages don't get hidden behind input */}
           <div style={{ height: "16px" }} />
         </div>
       </ScrollArea>

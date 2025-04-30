@@ -9,6 +9,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import MessageAttachments from "./MessageAttachments";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -34,6 +44,7 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
   const [isStarring, setIsStarring] = useState(false);
   const [optimisticReaction, setOptimisticReaction] = useState(null);
   const [optimisticStarred, setOptimisticStarred] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const dropdownRef = useRef(null);
 
   // Optimistic reaction effect
@@ -120,14 +131,23 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
     );
   };
 
-  const handleDelete = () => {
+  // Open delete confirmation dialog
+  const handleDeleteClick = () => {
+    setDropdownOpen(false);
+    setShowDeleteConfirm(true);
+  };
+
+  // Handle message deletion with specific type
+  const handleDelete = (deleteType) => {
+    // Close dialog
+    setShowDeleteConfirm(false);
+
     // Set deleting state for UI feedback
     setIsDeleting(true);
-    setDropdownOpen(false);
 
     deleteMessage({
       messageId: message.id,
-      deleteType: "FOR_ME",
+      deleteType: deleteType, // Either "FOR_ME" or "FOR_EVERYONE"
     }).finally(() => {
       setIsDeleting(false);
     });
@@ -188,6 +208,12 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
     : isDeleting
     ? "opacity-50"
     : "";
+
+  // Determine if user can delete for everyone (only own messages or admin in group)
+  const canDeleteForEveryone =
+    isOwn ||
+    (chat.type === "GROUP" &&
+      chat.admins?.some((admin) => admin.userId === user.id));
 
   return (
     <div
@@ -374,7 +400,7 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
                     <span>Forward</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={handleDelete}
+                    onClick={handleDeleteClick}
                     className="text-destructive"
                     disabled={isDeleting}
                   >
@@ -413,6 +439,35 @@ const MessageItem = ({ message, isOwn, showSender, previousMessage, chat }) => {
           )}
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Message</AlertDialogTitle>
+            <AlertDialogDescription>
+              How would you like to delete this message?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-background border border-border hover:bg-accent/50 text-foreground"
+              onClick={() => handleDelete("FOR_ME")}
+            >
+              Delete for me
+            </AlertDialogAction>
+            {canDeleteForEveryone && (
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => handleDelete("FOR_EVERYONE")}
+              >
+                Delete for everyone
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

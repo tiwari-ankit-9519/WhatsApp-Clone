@@ -1,9 +1,13 @@
 /* eslint-disable no-unused-vars */
-import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useRef, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { format, formatDistanceToNow } from "date-fns";
 import { useAuthContext } from "../../contexts/AuthContext";
 import { useProfile } from "../../hooks/useProfile";
+import { useChats } from "../../hooks/useChats";
+import { useContacts } from "../../hooks/useContacts";
+import { useMessages } from "../../hooks/useMessages";
+import { useStarredMessages } from "../../hooks/useMessages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,6 +76,9 @@ function ProfilePage() {
   const navigate = useNavigate();
   const { user, logout, deleteAccount, isUpdateLoading } = useAuthContext();
   const { updateProfile, isUpdating } = useProfile();
+  const { chats } = useChats();
+  const { contacts } = useContacts();
+  const { starredMessages } = useStarredMessages();
 
   // UI States
   const [isEditing, setIsEditing] = useState(false);
@@ -95,6 +102,21 @@ function ProfilePage() {
 
   const fileInputRef = useRef(null);
 
+  // Sync form data with user data when user changes
+  useEffect(() => {
+    if (user) {
+      setProfileData({
+        name: user.name || "",
+        email: user.email || "",
+        bio: user.bio || "",
+        gender: user.gender || "",
+        dateOfBirth: user.dateOfBirth
+          ? new Date(user.dateOfBirth).toISOString().split("T")[0]
+          : "",
+      });
+    }
+  }, [user]);
+
   // Calculate age from date of birth
   const getAge = () => {
     if (!user?.dateOfBirth) return null;
@@ -108,33 +130,52 @@ function ProfilePage() {
     return age;
   };
 
-  // Stats for display
-  const stats = [
-    {
-      icon: <MessageSquare className="h-5 w-5" />,
-      label: "Messages",
-      value: "1,234",
-      color: "bg-blue-500/10 text-blue-500",
-    },
-    {
-      icon: <Users2 className="h-5 w-5" />,
-      label: "Contacts",
-      value: "42",
-      color: "bg-purple-500/10 text-purple-500",
-    },
-    {
-      icon: <Star className="h-5 w-5" />,
-      label: "Groups",
-      value: "7",
-      color: "bg-amber-500/10 text-amber-500",
-    },
-    {
-      icon: <Heart className="h-5 w-5" />,
-      label: "Favorites",
-      value: "16",
-      color: "bg-rose-500/10 text-rose-500",
-    },
-  ];
+  // Calculate dynamic stats
+  const getDynamicStats = () => {
+    const messageCount =
+      chats?.reduce((total, chat) => {
+        // Count the messages in each chat
+        return total + (chat.messages?.length || 0);
+      }, 0) || 0;
+
+    const groupCount =
+      chats?.filter((chat) => chat.type === "GROUP").length || 0;
+    const contactCount = contacts?.length || 0;
+    const favoriteCount = starredMessages?.length || 0;
+
+    return [
+      {
+        icon: <MessageSquare className="h-5 w-5" />,
+        label: "Messages",
+        value:
+          messageCount > 999
+            ? `${(messageCount / 1000).toFixed(1)}k`
+            : messageCount.toString(),
+        color: "bg-blue-500/10 text-blue-500",
+      },
+      {
+        icon: <Users2 className="h-5 w-5" />,
+        label: "Contacts",
+        value: contactCount.toString(),
+        color: "bg-purple-500/10 text-purple-500",
+      },
+      {
+        icon: <Star className="h-5 w-5" />,
+        label: "Groups",
+        value: groupCount.toString(),
+        color: "bg-amber-500/10 text-amber-500",
+      },
+      {
+        icon: <Heart className="h-5 w-5" />,
+        label: "Favorites",
+        value: favoriteCount.toString(),
+        color: "bg-rose-500/10 text-rose-500",
+      },
+    ];
+  };
+
+  // Get the dynamic stats
+  const stats = getDynamicStats();
 
   // Handle file selection for profile picture
   const handleFileSelect = (e) => {
@@ -179,11 +220,8 @@ function ProfilePage() {
       bio: profileData.bio,
       gender: profileData.gender || undefined,
       dateOfBirth: profileData.dateOfBirth || undefined,
+      profilePic: profilePic,
     };
-
-    if (profilePic) {
-      formData.profilePic = profilePic;
-    }
 
     try {
       await updateProfile(formData);
@@ -204,27 +242,40 @@ function ProfilePage() {
     setIsEditing(false);
     setProfilePic(null);
     setPreviewUrl(null);
-    setProfileData({
-      name: user?.name || "",
-      email: user?.email || "",
-      bio: user?.bio || "",
-      gender: user?.gender || "",
-      dateOfBirth: user?.dateOfBirth
-        ? new Date(user.dateOfBirth).toISOString().split("T")[0]
-        : "",
-    });
+    // Reset form to current user data
+    if (user) {
+      setProfileData({
+        name: user.name || "",
+        email: user.email || "",
+        bio: user.bio || "",
+        gender: user.gender || "",
+        dateOfBirth: user.dateOfBirth
+          ? new Date(user.dateOfBirth).toISOString().split("T")[0]
+          : "",
+      });
+    }
   };
 
   // Handle account deletion
-  const handleDeleteAccount = () => {
-    deleteAccount();
-    setShowDeleteConfirm(false);
+  const handleDeleteAccount = async () => {
+    try {
+      await deleteAccount();
+      setShowDeleteConfirm(false);
+    } catch (error) {
+      toast.error("Failed to delete account");
+      console.error(error);
+    }
   };
 
   // Handle logout
-  const handleLogout = () => {
-    logout();
-    setShowLogoutConfirm(false);
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setShowLogoutConfirm(false);
+    } catch (error) {
+      toast.error("Failed to log out");
+      console.error(error);
+    }
   };
 
   const formatDate = (dateString) => {
@@ -232,8 +283,7 @@ function ProfilePage() {
     try {
       return format(new Date(dateString), "PPP");
     } catch (e) {
-      console.log(e);
-
+      console.error("Error formatting date:", e);
       return "Invalid date";
     }
   };
@@ -253,6 +303,14 @@ function ProfilePage() {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0 },
   };
+
+  if (!user) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -412,7 +470,9 @@ function ProfilePage() {
                   <span>
                     Last active{" "}
                     {user?.lastSeen
-                      ? formatDistanceToNow(new Date(user.lastSeen))
+                      ? formatDistanceToNow(new Date(user.lastSeen), {
+                          addSuffix: true,
+                        })
                       : "recently"}
                   </span>
                 </div>
@@ -463,9 +523,10 @@ function ProfilePage() {
               </TabsList>
 
               <TabsContent value="personal">
-                <AnimatePresence>
+                <AnimatePresence mode="wait">
                   {isEditing ? (
                     <motion.div
+                      key="editing"
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -20 }}
@@ -571,6 +632,7 @@ function ProfilePage() {
                     </motion.div>
                   ) : (
                     <motion.div
+                      key="viewing"
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -20 }}
@@ -706,9 +768,12 @@ function ProfilePage() {
                               <h3 className="text-sm font-medium">
                                 Blocked Users
                               </h3>
-                              <p className="text-xs text-muted-foreground">
+                              <Link
+                                to="/contacts/find"
+                                className="text-xs text-muted-foreground"
+                              >
                                 Manage blocked contacts
-                              </p>
+                              </Link>
                             </div>
                           </div>
                           <Button variant="ghost" size="sm">

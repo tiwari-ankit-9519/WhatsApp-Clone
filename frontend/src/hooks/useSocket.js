@@ -5,110 +5,132 @@ import {
   joinChat,
   leaveChat,
   emitTyping,
+  isSocketConnected,
 } from "../lib/socket/socketClient";
 import { handleSocketEvent } from "../lib/queryClient";
+import { toast } from "react-hot-toast";
 
 export function useSocket() {
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(isSocketConnected());
   const [typingUsers, setTypingUsers] = useState({});
+  const [socketError, setSocketError] = useState(null);
   const queryClient = useQueryClient();
 
-  // Use refs to track mounted state and prevent memory leaks
   const isMounted = useRef(true);
-  // Track active chat rooms to prevent duplicate joins
   const activeChats = useRef(new Set());
 
   useEffect(() => {
-    // Set mounted flag
     isMounted.current = true;
 
-    // Get socket instance
     const socket = getSocket();
-    if (!socket) return;
+    if (!socket) {
+      setSocketError("Socket not initialized");
+      return;
+    }
 
     const onConnect = () => {
       if (isMounted.current) {
         setIsConnected(true);
+        setSocketError(null);
+
+        if (activeChats.current.size > 0) {
+          activeChats.current.forEach((chatId) => {
+            joinChat(chatId);
+          });
+        }
       }
     };
 
-    const onDisconnect = () => {
+    const onDisconnect = (reason) => {
       if (isMounted.current) {
         setIsConnected(false);
+        if (reason === "io server disconnect" || reason === "transport close") {
+          setSocketError(
+            "Disconnected from server. Attempting to reconnect..."
+          );
+        }
       }
     };
 
     const onNewMessage = (data) => {
+      if (!isMounted.current) return;
       handleSocketEvent("new-message", data);
     };
 
     const onMessageDeleted = (data) => {
+      if (!isMounted.current) return;
       handleSocketEvent("message-deleted", data);
     };
 
     const onMessageReaction = (data) => {
+      if (!isMounted.current) return;
       handleSocketEvent("message-reaction", data);
     };
 
     const onNewChat = (data) => {
+      if (!isMounted.current) return;
       handleSocketEvent("new-chat", data);
     };
 
     const onUserTyping = ({ userId, chatId, isTyping }) => {
       if (!isMounted.current) return;
 
-      setTypingUsers((prev) => {
-        const chatTyping = prev[chatId] || {};
-        if (isTyping) {
-          return {
-            ...prev,
-            [chatId]: { ...chatTyping, [userId]: Date.now() },
-          };
-        } else {
-          // Filter out the user who stopped typing
-          const newChatTyping = { ...chatTyping };
-          delete newChatTyping[userId];
-          return { ...prev, [chatId]: newChatTyping };
-        }
-      });
+      if (activeChats.current.has(chatId)) {
+        setTypingUsers((prev) => {
+          const chatTyping = prev[chatId] || {};
+          if (isTyping) {
+            return {
+              ...prev,
+              [chatId]: { ...chatTyping, [userId]: Date.now() },
+            };
+          } else {
+            const newChatTyping = { ...chatTyping };
+            delete newChatTyping[userId];
+            return { ...prev, [chatId]: newChatTyping };
+          }
+        });
+      }
     };
 
     const onContactRequestAccepted = () => {
+      if (!isMounted.current) return;
       queryClient.invalidateQueries({ queryKey: ["contacts"] });
       queryClient.invalidateQueries({ queryKey: ["pendingRequests"] });
+      toast.success("Contact request accepted");
     };
 
     const onNewContactRequest = () => {
+      if (!isMounted.current) return;
       queryClient.invalidateQueries({ queryKey: ["pendingRequests"] });
       queryClient.invalidateQueries({ queryKey: ["allNotificationCounts"] });
+      toast.info("You have a new contact request");
     };
 
-    const onMessagesRead = ({ chatId, messageIds, readByUserId }) => {
-      queryClient.setQueryData(["messages", chatId], (oldData) => {
-        if (!oldData || !oldData.messages) return oldData;
-
-        return {
-          ...oldData,
-          messages: oldData.messages.map((msg) => {
-            if (messageIds.includes(msg.id)) {
-              return {
-                ...msg,
-                statuses: (msg.statuses || []).map((status) => {
-                  if (status.userId === readByUserId) {
-                    return { ...status, status: "READ" };
-                  }
-                  return status;
-                }),
-              };
-            }
-            return msg;
-          }),
-        };
-      });
+    const onMessagesRead = (data) => {
+      if (!isMounted.current) return;
+      handleSocketEvent("messages-read", data);
     };
 
-    // Only attach event listeners if socket exists
+    const onError = (error) => {
+      if (isMounted.current) {
+        console.error("Socket error:", error);
+        setSocketError(`Connection error: ${error.message || "Unknown error"}`);
+      }
+    };
+
     if (socket) {
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("new-message", onNewMessage);
+      socket.off("message-deleted", onMessageDeleted);
+      socket.off("message-reaction", onMessageReaction);
+      socket.off("new-chat", onNewChat);
+      socket.off("user-typing", onUserTyping);
+      socket.off("contact-request-accepted", onContactRequestAccepted);
+      socket.off("new-contact-request", onNewContactRequest);
+      socket.off("messages-read", onMessagesRead);
+      socket.off("error", onError);
+
       socket.on("connect", onConnect);
       socket.on("disconnect", onDisconnect);
       socket.on("new-message", onNewMessage);
@@ -119,6 +141,7 @@ export function useSocket() {
       socket.on("contact-request-accepted", onContactRequestAccepted);
       socket.on("new-contact-request", onNewContactRequest);
       socket.on("messages-read", onMessagesRead);
+      socket.on("error", onError);
 
       setIsConnected(socket.connected);
     }
@@ -141,15 +164,15 @@ export function useSocket() {
         socket.off("contact-request-accepted", onContactRequestAccepted);
         socket.off("new-contact-request", onNewContactRequest);
         socket.off("messages-read", onMessagesRead);
+        socket.off("error", onError);
       }
 
-      // Clear the active chats set
       activeChats.current.clear();
     };
   }, [queryClient]);
 
   useEffect(() => {
-    const typingTimeout = 5000; // 5 seconds
+    const typingTimeout = 5000;
     let intervalId;
 
     if (isMounted.current) {
@@ -190,16 +213,15 @@ export function useSocket() {
     };
   }, []);
 
-  // Use useCallback to memoize these functions to prevent recreation on each render
   const joinChatRoom = useCallback((chatId) => {
-    if (!chatId || activeChats.current.has(chatId)) return;
+    if (!chatId) return;
 
     joinChat(chatId);
     activeChats.current.add(chatId);
   }, []);
 
   const leaveChatRoom = useCallback((chatId) => {
-    if (!chatId || !activeChats.current.has(chatId)) return;
+    if (!chatId) return;
 
     leaveChat(chatId);
     activeChats.current.delete(chatId);
@@ -218,11 +240,21 @@ export function useSocket() {
     [typingUsers]
   );
 
+  const retryConnection = useCallback(() => {
+    const socket = getSocket();
+    if (socket && !socket.connected) {
+      socket.connect();
+    }
+  }, []);
+
   return {
     isConnected,
+    socketError,
     joinChatRoom,
     leaveChatRoom,
     sendTypingStatus,
     getTypingUsers,
+    retryConnection,
+    activeChats: Array.from(activeChats.current),
   };
 }

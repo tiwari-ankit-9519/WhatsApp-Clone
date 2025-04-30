@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authApi } from "../lib/api/authApi";
@@ -11,17 +11,38 @@ export function useAuth() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
+  // Create a direct setter for user that can be called from outside
+  const setUserDirectly = useCallback((userData) => {
+    if (userData) {
+      setUser(userData);
+    }
+  }, []);
+
+  // Initialize auth state from localStorage
   useEffect(() => {
     const token = localStorage.getItem("token");
     const storedUser = localStorage.getItem("user");
 
     if (token && storedUser) {
-      setIsAuthenticated(true);
-      setUser(JSON.parse(storedUser));
-      initializeSocket(token);
+      try {
+        setIsAuthenticated(true);
+        setUser(JSON.parse(storedUser));
+        initializeSocket(token);
+      } catch (e) {
+        console.error("Error parsing stored user:", e);
+        // Can't use logout directly here due to dependency cycle
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        setUser(null);
+        setIsAuthenticated(false);
+        disconnectSocket();
+        queryClient.clear();
+        navigate("/login");
+      }
     }
-  }, []);
+  }, [navigate, queryClient]);
 
+  // Get user profile
   const { isLoading: profileLoading } = useQuery({
     queryKey: ["profile"],
     queryFn: authApi.getProfile,
@@ -33,6 +54,7 @@ export function useAuth() {
     onError: () => {
       logout();
     },
+    refetchInterval: 1000 * 60 * 5, // Refetch every 5 minutes
   });
 
   const loginMutation = useMutation({
@@ -70,9 +92,12 @@ export function useAuth() {
   const updateProfileMutation = useMutation({
     mutationFn: authApi.updateProfile,
     onSuccess: (data) => {
+      // Update state directly
       setUser(data.user);
+      // Update storage
       localStorage.setItem("user", JSON.stringify(data.user));
       toast.success(data.message || "Profile updated successfully");
+      // Refresh cached queries
       queryClient.invalidateQueries({ queryKey: ["profile"] });
     },
     onError: (error) => {
@@ -98,7 +123,7 @@ export function useAuth() {
     },
   });
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setUser(null);
@@ -106,17 +131,18 @@ export function useAuth() {
     disconnectSocket();
     queryClient.clear();
     navigate("/login");
-  };
+  }, [navigate, queryClient]);
 
   return {
     user,
+    setUserDirectly,
     isAuthenticated,
     isLoading: profileLoading,
     login: loginMutation.mutate,
     register: registerMutation.mutate,
     logout: () => logoutMutation.mutate(),
     updateProfile: updateProfileMutation.mutate,
-    deleteAccount: () => deleteAccountMutation.mutate(),
+    deleteAccount: () => deleteAccountMutation.mutateAsync(), // Use mutateAsync to return a promise
     isLoginLoading: loginMutation.isPending,
     isRegisterLoading: registerMutation.isPending,
     isUpdateLoading: updateProfileMutation.isPending,

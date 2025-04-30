@@ -1,11 +1,22 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { addUserUpdateListener } from "../lib/userUpdateHelper";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const auth = useAuth();
+
+  // Listen for user updates from anywhere in the app
+  useEffect(() => {
+    const cleanup = addUserUpdateListener((userData) => {
+      // Update the user state directly when notified
+      auth.setUserDirectly(userData);
+    });
+
+    return cleanup;
+  }, [auth]);
 
   if (auth.isLoading) {
     return (
