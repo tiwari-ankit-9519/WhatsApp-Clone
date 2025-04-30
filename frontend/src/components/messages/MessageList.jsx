@@ -10,6 +10,7 @@ const MessageList = ({
   loadMoreMessages,
   hasMoreMessages,
   isLoadingMore,
+  onScrollToBottomRequest,
 }) => {
   const scrollAreaRef = useRef(null);
   const viewportRef = useRef(null);
@@ -74,6 +75,25 @@ const MessageList = ({
     }
   }, [messages.length]);
 
+  // Scroll to bottom when requested
+  const scrollToBottom = () => {
+    if (viewportRef.current) {
+      // Use smooth scrolling for manual requests
+      viewportRef.current.scrollTo({
+        top: viewportRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  };
+
+  // Execute scroll to bottom when requested via props
+  useEffect(() => {
+    if (onScrollToBottomRequest) {
+      // This effect runs when the parent component wants to scroll to bottom
+      scrollToBottom();
+    }
+  }, [onScrollToBottomRequest]);
+
   // Group messages by date
   const groupMessagesByDate = () => {
     const groups = {};
@@ -129,10 +149,9 @@ const MessageList = ({
 
   const typingUserNames = getTypingUserNames();
 
-  // Empty state if no messages
   if (sortedMessages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-y-auto bg-accent/10">
+      <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-y-auto bg-accent/10 h-full">
         <div className="text-center p-6 max-w-md">
           <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg
@@ -173,7 +192,6 @@ const MessageList = ({
             </div>
           )}
 
-          {/* Message groups by date */}
           {Object.keys(messageGroups).map((date) => (
             <div key={date}>
               {/* Date header */}

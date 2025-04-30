@@ -6,6 +6,7 @@ import { useSocketContext } from "../../contexts/SocketContext";
 import { useChats } from "@/hooks/useChats";
 import { useContacts } from "@/hooks/useContacts";
 import { useNotifications } from "@/hooks/useNotification";
+import { formatDistanceToNow } from "date-fns";
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -34,6 +35,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import {
   MessageSquare,
   Users,
@@ -46,7 +48,11 @@ import {
   Settings,
   User,
   Plus,
+  CheckCircle2,
+  XCircle,
+  Check,
 } from "lucide-react";
+import { Upload } from "lucide-react";
 
 function Sidebar({ isMobileOpen, closeMobileSidebar }) {
   const navigate = useNavigate();
@@ -72,14 +78,43 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
   // UI States
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
-  const [groupName, setGroupName] = useState("");
-  const [selectedContacts, setSelectedContacts] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [startingChatWithId, setStartingChatWithId] = useState(null);
   const [globalLoading, setGlobalLoading] = useState(false); // Global loading state
+
+  // State for group creation
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [selectedContacts, setSelectedContacts] = useState([]);
+  const [groupImage, setGroupImage] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Handle file selection for group image
+  const handleGroupImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setGroupImage(file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPreviewUrl(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Handle removing selected group image
+  const handleRemoveGroupImage = () => {
+    setGroupImage(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+  const [activeTab, setActiveTab] = useState("chats");
+  const [selectedPendingRequests, setSelectedPendingRequests] = useState([]);
 
   const currentChatId = location.pathname.startsWith("/chats/")
     ? location.pathname.split("/chats/")[1]
@@ -127,6 +162,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
         const newGroup = await createGroupChat({
           name: groupName.trim(),
           participantsIds: selectedContacts.map((contact) => contact.id),
+          groupIcon: groupImage, // Pass the group image file if selected
         });
 
         // Navigate to the new group chat
@@ -138,6 +174,8 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
         // Reset state
         setGroupName("");
         setSelectedContacts([]);
+        setGroupImage(null);
+        setPreviewUrl(null);
         setIsCreatingGroup(false);
       } catch (error) {
         console.error("Failed to create group:", error);
@@ -182,23 +220,138 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
     closeMobileSidebar();
   };
 
+  // Track loading states for each request
+  const [acceptingRequestIds, setAcceptingRequestIds] = useState([]);
+  const [rejectingRequestIds, setRejectingRequestIds] = useState([]);
+  const [minimumLoadingTime] = useState(800); // Minimum loading time in milliseconds
+
   // Contact request handlers
   const handleAcceptRequest = async (contactId) => {
-    setGlobalLoading(true);
     try {
-      await acceptRequest(contactId);
+      // Set loading state for this specific request
+      setAcceptingRequestIds((prev) => [...prev, contactId]);
+
+      // Track start time
+      const startTime = Date.now();
+
+      // Call the API function
+      const result = await acceptRequest(contactId);
+
+      // Calculate elapsed time
+      const elapsedTime = Date.now() - startTime;
+
+      // If response was too fast, add artificial delay
+      if (elapsedTime < minimumLoadingTime) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, minimumLoadingTime - elapsedTime)
+        );
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Error accepting request:", error);
+      return false;
     } finally {
-      setGlobalLoading(false);
+      // Clear loading state
+      setAcceptingRequestIds((prev) => prev.filter((id) => id !== contactId));
     }
   };
 
   const handleRejectRequest = async (contactId) => {
-    setGlobalLoading(true);
     try {
-      await rejectRequest(contactId);
+      // Set loading state for this specific request
+      setRejectingRequestIds((prev) => [...prev, contactId]);
+
+      // Track start time
+      const startTime = Date.now();
+
+      // Call the API function
+      const result = await rejectRequest(contactId);
+
+      // Calculate elapsed time
+      const elapsedTime = Date.now() - startTime;
+
+      // If response was too fast, add artificial delay
+      if (elapsedTime < minimumLoadingTime) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, minimumLoadingTime - elapsedTime)
+        );
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Error rejecting request:", error);
+      return false;
     } finally {
-      setGlobalLoading(false);
+      // Clear loading state
+      setRejectingRequestIds((prev) => prev.filter((id) => id !== contactId));
     }
+  };
+
+  // Batch accept/reject handlers
+  const [isBatchAccepting, setIsBatchAccepting] = useState(false);
+  const [isBatchRejecting, setIsBatchRejecting] = useState(false);
+
+  const handleBatchAccept = async () => {
+    if (selectedPendingRequests.length === 0) return;
+
+    setIsBatchAccepting(true);
+    const startTime = Date.now();
+
+    try {
+      // Process all requests in parallel for better efficiency
+      await Promise.all(
+        selectedPendingRequests.map((requestId) => acceptRequest(requestId))
+      );
+      setSelectedPendingRequests([]);
+
+      // Ensure minimum loading time for better UX
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime < minimumLoadingTime) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, minimumLoadingTime - elapsedTime)
+        );
+      }
+    } catch (error) {
+      console.error("Failed to accept some requests:", error);
+    } finally {
+      setIsBatchAccepting(false);
+    }
+  };
+
+  const handleBatchReject = async () => {
+    if (selectedPendingRequests.length === 0) return;
+
+    setIsBatchRejecting(true);
+    const startTime = Date.now();
+
+    try {
+      // Process all requests in parallel for better efficiency
+      await Promise.all(
+        selectedPendingRequests.map((requestId) => rejectRequest(requestId))
+      );
+      setSelectedPendingRequests([]);
+
+      // Ensure minimum loading time for better UX
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime < minimumLoadingTime) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, minimumLoadingTime - elapsedTime)
+        );
+      }
+    } catch (error) {
+      console.error("Failed to reject some requests:", error);
+    } finally {
+      setIsBatchRejecting(false);
+    }
+  };
+
+  const togglePendingRequestSelection = (requestId) => {
+    setSelectedPendingRequests((prev) =>
+      prev.includes(requestId)
+        ? prev.filter((id) => id !== requestId)
+        : [...prev, requestId]
+    );
   };
 
   // Start a chat with a contact
@@ -234,8 +387,8 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
     }
   });
 
-  // Build the display items list
-  const displayItems = [];
+  // Build the display items list for chats
+  const chatItems = [];
 
   // First add all active chats
   chats?.forEach((chat) => {
@@ -243,14 +396,14 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
       const otherUser = chat.users.find((u) => u.user.id !== user?.id)?.user;
       if (
         otherUser &&
-        !displayItems.some(
+        !chatItems.some(
           (item) =>
             item.type === "CHAT" &&
             item.chatType === "PRIVATE" &&
             item.otherUserId === otherUser.id
         )
       ) {
-        displayItems.push({
+        chatItems.push({
           type: "CHAT",
           chatType: chat.type,
           id: chat.id,
@@ -260,10 +413,12 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
           lastMessage: chat.messages?.[0]?.content || "No messages yet",
           lastMessageTime: chat.messages?.[0]?.createdAt || chat.updatedAt,
           unreadCount: chat.unreadCount || 0,
+          online: otherUser.online,
+          lastSeen: otherUser.lastSeen,
         });
       }
     } else if (chat.type === "GROUP") {
-      displayItems.push({
+      chatItems.push({
         type: "CHAT",
         chatType: chat.type,
         id: chat.id,
@@ -276,10 +431,10 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
     }
   });
 
-  // Then add contacts without active chats
+  // Add contacts without active chats (they're friends but no message has been exchanged)
   contacts?.forEach((contact) => {
     if (!contactsInChats.has(contact.receiver.id)) {
-      displayItems.push({
+      chatItems.push({
         type: "CONTACT",
         id: contact.id,
         userId: contact.receiver.id,
@@ -292,7 +447,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
   });
 
   // Sort: active chats first by latest message, then contacts alphabetically
-  displayItems.sort((a, b) => {
+  chatItems.sort((a, b) => {
     // Both are chats
     if (a.type === "CHAT" && b.type === "CHAT") {
       // If a has a message time and b doesn't
@@ -311,7 +466,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
       );
     }
 
-    // Chats come before contacts
+    // If one is a chat and one is a contact, chats come first
     if (a.type === "CHAT") return -1;
     if (b.type === "CHAT") return 1;
 
@@ -319,9 +474,9 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
     return a.name?.localeCompare(b.name) || 0;
   });
 
-  // Filter by search query if needed
-  const filteredItems = searchQuery
-    ? displayItems.filter((item) => {
+  // Filter chats by search query if needed
+  const filteredChatItems = searchQuery
+    ? chatItems.filter((item) => {
         if (item.type === "CHAT") {
           if (item.chatType === "GROUP") {
             return item.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -335,7 +490,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
           return item.name.toLowerCase().includes(searchQuery.toLowerCase());
         }
       })
-    : displayItems;
+    : chatItems;
 
   return (
     <>
@@ -439,7 +594,7 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
         <div className="p-4 border-b border-border">
           <div className="relative">
             <Input
-              placeholder="Search chats..."
+              placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
@@ -459,243 +614,428 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
           </div>
         </div>
 
-        {/* Main content */}
+        {/* Main content with tabs */}
         <div className="flex-1 overflow-y-auto">
-          {pendingRequests?.length > 0 && (
-            <div className="p-3 bg-accent/20">
-              <h3 className="font-medium text-sm mb-2">Contact Requests</h3>
-              {pendingRequests.map((request) => (
-                <div key={request.id} className="mb-3 last:mb-0">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10">
-                      <AvatarImage
-                        src={request.sender.profilePic}
-                        alt={request.sender.name}
-                      />
-                      <AvatarFallback>
-                        {request.sender.name?.charAt(0).toUpperCase() || "U"}
-                      </AvatarFallback>
-                    </Avatar>
+          <Tabs
+            defaultValue="chats"
+            value={activeTab}
+            onValueChange={setActiveTab}
+          >
+            <TabsList className="w-full">
+              <TabsTrigger value="chats" className="flex-1">
+                <MessageSquare className="h-4 w-4 mr-2" />
+                Chats
+              </TabsTrigger>
+              <TabsTrigger value="contacts" className="flex-1 relative">
+                <Users className="h-4 w-4 mr-2" />
+                Contacts
+                {pendingRequests?.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                    {pendingRequests.length > 99
+                      ? "99+"
+                      : pendingRequests.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
 
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium truncate">
-                        {request.sender.name}
-                      </h4>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {request.sender.email}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 mt-2">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => handleAcceptRequest(request.id)}
+            {/* Chats Tab Content */}
+            <TabsContent value="chats" className="flex-1 overflow-y-auto">
+              {searchQuery && searchResults.length > 0 && (
+                <div className="p-3 border-b border-border">
+                  <h3 className="font-medium text-sm mb-2">Search Results</h3>
+                  {searchResults.map((user) => (
+                    <div
+                      key={user.id}
+                      className="flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md"
                     >
-                      Accept
-                    </Button>
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={user.profilePic} alt={user.name} />
+                        <AvatarFallback>
+                          {user.name?.charAt(0).toUpperCase() || "U"}
+                        </AvatarFallback>
+                      </Avatar>
+
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium truncate">{user.name}</h4>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {user.email}
+                        </p>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        disabled={user.relationshipStatus !== "NONE"}
+                      >
+                        {user.relationshipStatus === "PENDING"
+                          ? "Pending"
+                          : user.relationshipStatus === "ACCEPTED"
+                          ? "Contact"
+                          : user.relationshipStatus === "BLOCKED"
+                          ? "Blocked"
+                          : "Add"}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="divide-y divide-border">
+                {isChatsLoading ? (
+                  <div className="flex justify-center items-center h-32">
+                    <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
+                  </div>
+                ) : filteredChatItems.length > 0 ? (
+                  filteredChatItems.map((item) => {
+                    // For chat items
+                    if (item.type === "CHAT") {
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-3 hover:bg-accent/50 cursor-pointer ${
+                            item.id === currentChatId ? "bg-accent" : ""
+                          }`}
+                          onClick={() => {
+                            navigate(`/chats/${item.id}`);
+                            closeMobileSidebar();
+                          }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <Avatar className="h-12 w-12">
+                              {item.chatType === "GROUP" ? (
+                                <>
+                                  <AvatarImage
+                                    src={item.image}
+                                    alt={item.name}
+                                  />
+                                  <AvatarFallback className="bg-primary/10 text-primary">
+                                    {item.name?.charAt(0).toUpperCase() || "G"}
+                                  </AvatarFallback>
+                                </>
+                              ) : (
+                                <>
+                                  <AvatarImage
+                                    src={item.otherUserProfilePic}
+                                    alt={item.otherUserName}
+                                  />
+                                  <AvatarFallback>
+                                    {item.otherUserName
+                                      ?.charAt(0)
+                                      .toUpperCase() || "U"}
+                                  </AvatarFallback>
+                                </>
+                              )}
+                            </Avatar>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-center">
+                                <h3 className="font-medium truncate">
+                                  {item.chatType === "GROUP"
+                                    ? item.name
+                                    : item.otherUserName}
+                                </h3>
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                  {item.lastMessageTime
+                                    ? new Date(
+                                        item.lastMessageTime
+                                      ).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })
+                                    : ""}
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between mt-1">
+                                <p className="text-sm text-muted-foreground truncate">
+                                  {item.lastMessage}
+                                </p>
+
+                                {item.unreadCount > 0 && (
+                                  <span className="bg-primary text-primary-foreground text-xs rounded-full px-2 flex items-center justify-center min-w-[20px] h-5">
+                                    {item.unreadCount > 99
+                                      ? "99+"
+                                      : item.unreadCount}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    // For contact items (friends without chats)
+                    else {
+                      return (
+                        <div
+                          key={item.id}
+                          className="p-3 hover:bg-accent/50 cursor-pointer"
+                          onClick={() => startChatWithContact(item.userId)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-12 w-12">
+                              <AvatarImage
+                                src={item.profilePic}
+                                alt={item.name}
+                              />
+                              <AvatarFallback>
+                                {item.name?.charAt(0).toUpperCase() || "U"}
+                              </AvatarFallback>
+                            </Avatar>
+
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-medium truncate">
+                                {item.name}
+                              </h3>
+                              <p className="text-sm text-muted-foreground truncate">
+                                {item.online ? (
+                                  <span className="flex items-center gap-1">
+                                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                    Online
+                                  </span>
+                                ) : (
+                                  <span>
+                                    {item.lastSeen
+                                      ? `Last seen ${new Date(
+                                          item.lastSeen
+                                        ).toLocaleString([], {
+                                          month: "short",
+                                          day: "numeric",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })}`
+                                      : "Offline"}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+
+                            {startingChatWithId === item.userId && (
+                              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                  })
+                ) : !searchQuery ? (
+                  <div className="p-6 text-center text-muted-foreground">
+                    <p>No chats or contacts yet</p>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-1"
-                      onClick={() => handleRejectRequest(request.id)}
+                      className="mt-2"
+                      onClick={handleFindContactsClick}
                     >
-                      Reject
+                      Find contacts
                     </Button>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {searchQuery && searchResults.length > 0 && (
-            <div className="p-3 border-b border-border">
-              <h3 className="font-medium text-sm mb-2">Search Results</h3>
-              {searchResults.map((user) => (
-                <div
-                  key={user.id}
-                  className="flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md"
-                >
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage src={user.profilePic} alt={user.name} />
-                    <AvatarFallback>
-                      {user.name?.charAt(0).toUpperCase() || "U"}
-                    </AvatarFallback>
-                  </Avatar>
-
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-medium truncate">{user.name}</h4>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {user.email}
-                    </p>
+                ) : (
+                  <div className="p-6 text-center text-muted-foreground">
+                    <p>No results matching "{searchQuery}"</p>
                   </div>
-
-                  <Button
-                    size="sm"
-                    disabled={user.relationshipStatus !== "NONE"}
-                  >
-                    {user.relationshipStatus === "PENDING"
-                      ? "Pending"
-                      : user.relationshipStatus === "ACCEPTED"
-                      ? "Contact"
-                      : user.relationshipStatus === "BLOCKED"
-                      ? "Blocked"
-                      : "Add"}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="divide-y divide-border">
-            {isChatsLoading ? (
-              <div className="flex justify-center items-center h-32">
-                <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
+                )}
               </div>
-            ) : filteredItems.length > 0 ? (
-              filteredItems.map((item) => {
-                // For chat items
-                if (item.type === "CHAT") {
-                  return (
-                    <div
-                      key={item.id}
-                      className={`p-3 hover:bg-accent/50 cursor-pointer ${
-                        item.id === currentChatId ? "bg-accent" : ""
-                      }`}
-                      onClick={() => {
-                        navigate(`/chats/${item.id}`);
-                        closeMobileSidebar();
-                      }}
-                    >
-                      <div className="flex items-start gap-3">
-                        <Avatar className="h-12 w-12">
-                          {item.chatType === "GROUP" ? (
-                            <>
-                              <AvatarImage src={item.image} alt={item.name} />
-                              <AvatarFallback className="bg-primary/10 text-primary">
-                                {item.name?.charAt(0).toUpperCase() || "G"}
-                              </AvatarFallback>
-                            </>
+            </TabsContent>
+
+            {/* Contacts Tab Content - Shows Friend Requests */}
+            <TabsContent value="contacts" className="flex-1 overflow-y-auto">
+              {pendingRequests?.length > 0 ? (
+                <div>
+                  {/* Batch actions for pending requests */}
+                  {selectedPendingRequests.length > 0 && (
+                    <div className="p-3 bg-accent/30 flex justify-between items-center">
+                      <span className="text-sm font-medium">
+                        {selectedPendingRequests.length} selected
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleBatchReject}
+                          disabled={
+                            isBatchRejecting ||
+                            isBatchAccepting ||
+                            rejectingRequestIds.length > 0 ||
+                            acceptingRequestIds.length > 0
+                          }
+                        >
+                          {isBatchRejecting ? (
+                            <div className="flex items-center justify-center">
+                              <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2"></div>
+                              <span>Rejecting...</span>
+                            </div>
                           ) : (
                             <>
-                              <AvatarImage
-                                src={item.otherUserProfilePic}
-                                alt={item.otherUserName}
-                              />
-                              <AvatarFallback>
-                                {item.otherUserName?.charAt(0).toUpperCase() ||
-                                  "U"}
-                              </AvatarFallback>
+                              <XCircle className="h-4 w-4 mr-1" />
+                              Reject All
                             </>
                           )}
-                        </Avatar>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex justify-between items-center">
-                            <h3 className="font-medium truncate">
-                              {item.chatType === "GROUP"
-                                ? item.name
-                                : item.otherUserName}
-                            </h3>
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              {item.lastMessageTime
-                                ? new Date(
-                                    item.lastMessageTime
-                                  ).toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })
-                                : ""}
-                            </span>
-                          </div>
-
-                          <div className="flex justify-between mt-1">
-                            <p className="text-sm text-muted-foreground truncate">
-                              {item.lastMessage}
-                            </p>
-
-                            {item.unreadCount > 0 && (
-                              <span className="bg-primary text-primary-foreground text-xs rounded-full px-2 flex items-center justify-center min-w-[20px] h-5">
-                                {item.unreadCount > 99
-                                  ? "99+"
-                                  : item.unreadCount}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleBatchAccept}
+                          disabled={
+                            isBatchRejecting ||
+                            isBatchAccepting ||
+                            rejectingRequestIds.length > 0 ||
+                            acceptingRequestIds.length > 0
+                          }
+                        >
+                          {isBatchAccepting ? (
+                            <div className="flex items-center justify-center">
+                              <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2"></div>
+                              <span>Accepting...</span>
+                            </div>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="h-4 w-4 mr-1" />
+                              Accept All
+                            </>
+                          )}
+                        </Button>
                       </div>
                     </div>
-                  );
-                }
-                // For contact items
-                else {
-                  return (
-                    <div
-                      key={item.id}
-                      className="p-3 hover:bg-accent/50 cursor-pointer"
-                      onClick={() => startChatWithContact(item.userId)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage src={item.profilePic} alt={item.name} />
-                          <AvatarFallback>
-                            {item.name?.charAt(0).toUpperCase() || "U"}
-                          </AvatarFallback>
-                        </Avatar>
+                  )}
 
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-medium truncate">{item.name}</h3>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {item.online ? (
-                              <span className="flex items-center gap-1">
-                                <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                                Online
-                              </span>
-                            ) : (
-                              <span>
-                                {item.lastSeen
-                                  ? `Last seen ${new Date(
-                                      item.lastSeen
-                                    ).toLocaleString([], {
-                                      month: "short",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}`
-                                  : "Offline"}
-                              </span>
-                            )}
-                          </p>
+                  <div className="divide-y divide-border">
+                    {pendingRequests.map((request) => {
+                      const isAccepting = acceptingRequestIds.includes(
+                        request.id
+                      );
+                      const isRejecting = rejectingRequestIds.includes(
+                        request.id
+                      );
+
+                      return (
+                        <div
+                          key={request.id}
+                          className="p-3 hover:bg-accent/50"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex items-center justify-center mr-1 mt-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedPendingRequests.includes(
+                                  request.id
+                                )}
+                                onChange={() =>
+                                  togglePendingRequestSelection(request.id)
+                                }
+                                className="h-4 w-4 rounded border-gray-300 focus:ring-primary"
+                                disabled={isAccepting || isRejecting}
+                              />
+                            </div>
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage
+                                src={request.sender.profilePic}
+                                alt={request.sender.name}
+                              />
+                              <AvatarFallback>
+                                {request.sender.name?.charAt(0).toUpperCase() ||
+                                  "U"}
+                              </AvatarFallback>
+                            </Avatar>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between">
+                                <h3 className="font-medium truncate">
+                                  {request.sender.name}
+                                </h3>
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                  {request.createdAt &&
+                                    formatDistanceToNow(
+                                      new Date(request.createdAt),
+                                      {
+                                        addSuffix: true,
+                                      }
+                                    )}
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {request.sender.email}
+                              </p>
+
+                              <div className="flex gap-2 mt-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex-1 h-8 text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRejectRequest(request.id);
+                                  }}
+                                  disabled={
+                                    isRejecting ||
+                                    isAccepting ||
+                                    isBatchAccepting ||
+                                    isBatchRejecting
+                                  }
+                                >
+                                  {isRejecting ? (
+                                    <div className="flex items-center justify-center w-full">
+                                      <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2"></div>
+                                      <span>Rejecting...</span>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <XCircle className="h-4 w-4 mr-1" />
+                                      Reject
+                                    </>
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="flex-1 h-8 text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAcceptRequest(request.id);
+                                  }}
+                                  disabled={
+                                    isRejecting ||
+                                    isAccepting ||
+                                    isBatchAccepting ||
+                                    isBatchRejecting
+                                  }
+                                >
+                                  {isAccepting ? (
+                                    <div className="flex items-center justify-center w-full">
+                                      <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2"></div>
+                                      <span>Accepting...</span>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <Check className="h-4 w-4 mr-1" />
+                                      Accept
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-
-                        {startingChatWithId === item.userId && (
-                          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                }
-              })
-            ) : !searchQuery ? (
-              <div className="p-6 text-center text-muted-foreground">
-                <p>No chats or contacts yet</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={handleFindContactsClick}
-                >
-                  Find contacts
-                </Button>
-              </div>
-            ) : (
-              <div className="p-6 text-center text-muted-foreground">
-                <p>No results matching "{searchQuery}"</p>
-              </div>
-            )}
-          </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-48 p-4">
+                  <UserPlus className="h-16 w-16 text-muted-foreground opacity-50 mb-4" />
+                  <p className="text-center text-muted-foreground">
+                    No pending friend requests
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4"
+                    onClick={handleFindContactsClick}
+                  >
+                    Find new contacts
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Create a direct action button for Find Contacts on mobile */}
@@ -724,6 +1064,56 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
             </DialogHeader>
 
             <div className="space-y-4 py-4">
+              {/* Group Image Upload */}
+              <div className="flex flex-col items-center mb-2">
+                <div className="relative mb-2">
+                  <Avatar className="h-24 w-24">
+                    {previewUrl ? (
+                      <AvatarImage src={previewUrl} alt="Group Image" />
+                    ) : (
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        {groupName ? groupName.charAt(0).toUpperCase() : "G"}
+                      </AvatarFallback>
+                    )}
+                  </Avatar>
+
+                  <div className="absolute bottom-0 right-0">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleGroupImageSelect}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      className="h-8 w-8 rounded-full bg-primary text-primary-foreground"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {previewUrl && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1"
+                    onClick={handleRemoveGroupImage}
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Remove
+                  </Button>
+                )}
+                <p className="text-xs text-muted-foreground mt-1">
+                  {previewUrl
+                    ? "Change group image"
+                    : "Add group image (optional)"}
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-medium">Group Name</label>
                 <Input
@@ -805,6 +1195,8 @@ function Sidebar({ isMobileOpen, closeMobileSidebar }) {
                   setIsCreatingGroup(false);
                   setGroupName("");
                   setSelectedContacts([]);
+                  setGroupImage(null);
+                  setPreviewUrl(null);
                 }}
                 disabled={isCreatingGroupChat || globalLoading}
               >

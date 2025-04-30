@@ -24,6 +24,7 @@ function ChatPage() {
     loadMoreMessages,
     hasMoreMessages,
     isLoadingMore,
+    isLoading: isMessagesLoading,
   } = useMessages(chatId);
 
   // Get socket-related functions
@@ -34,10 +35,12 @@ function ChatPage() {
   const [typingTimeout, setTypingTimeout] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [optimisticMessages, setOptimisticMessages] = useState([]);
+  const [initialScrollComplete, setInitialScrollComplete] = useState(false);
 
   // Refs
   const hasMarkedAsRead = useRef(false);
   const messageListContainerRef = useRef(null);
+  const initialLoadRef = useRef(false);
 
   // Get chat details
   const { chat, isLoading: isChatLoading, markAsRead } = useChatDetails(chatId);
@@ -61,6 +64,8 @@ function ChatPage() {
     hasMarkedAsRead.current = false;
     setOptimisticMessages([]);
     setMessage("");
+    setInitialScrollComplete(false);
+    initialLoadRef.current = false;
   }, [chatId]);
 
   // Join and leave chat room
@@ -88,24 +93,56 @@ function ChatPage() {
   }, [chatId, chat, markAsRead]);
 
   // Scroll to bottom directly (not relying on child components)
-  const scrollToBottom = useCallback(() => {
-    if (messageListContainerRef.current) {
-      const scrollElement = messageListContainerRef.current.querySelector(
-        "[data-radix-scroll-area-viewport]"
-      );
-      if (scrollElement) {
-        scrollElement.scrollTop = scrollElement.scrollHeight;
+  const scrollToBottom = useCallback(
+    (forced = false) => {
+      if (messageListContainerRef.current) {
+        const scrollElement = messageListContainerRef.current.querySelector(
+          "[data-radix-scroll-area-viewport]"
+        );
+        if (scrollElement) {
+          scrollElement.scrollTop = scrollElement.scrollHeight;
+          if (forced && !initialScrollComplete) {
+            setInitialScrollComplete(true);
+          }
+        }
       }
+    },
+    [initialScrollComplete]
+  );
+
+  // Initial scroll to bottom when messages load
+  useEffect(() => {
+    // Only run this once when messages have loaded
+    if (messages.length > 0 && !isMessagesLoading && !initialLoadRef.current) {
+      initialLoadRef.current = true;
+
+      // Schedule multiple scroll attempts to ensure it works
+      const scrollAttempts = [50, 150, 300, 500, 1000];
+
+      scrollAttempts.forEach((delay) => {
+        setTimeout(() => {
+          scrollToBottom(true);
+        }, delay);
+      });
     }
-  }, []);
+  }, [messages, isMessagesLoading, scrollToBottom]);
 
   // Scroll to bottom when new messages are added
   useEffect(() => {
-    if (messages.length > 0 || optimisticMessages.length > 0) {
-      // Use a timeout to ensure DOM is updated
-      setTimeout(scrollToBottom, 100);
+    if (
+      (messages.length > 0 || optimisticMessages.length > 0) &&
+      initialScrollComplete
+    ) {
+      // Use multiple timeouts to ensure DOM is updated
+      setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 150);
     }
-  }, [messages.length, optimisticMessages.length, scrollToBottom]);
+  }, [
+    messages.length,
+    optimisticMessages.length,
+    scrollToBottom,
+    initialScrollComplete,
+  ]);
 
   // Handle message input change
   const handleMessageChange = (e) => {
@@ -177,6 +214,7 @@ function ChatPage() {
 
       // Scroll to bottom immediately after sending
       setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 150);
 
       // Send actual message
       try {
@@ -243,6 +281,7 @@ function ChatPage() {
 
       // Scroll to bottom immediately after sending
       setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 150);
 
       // Send actual message
       try {
@@ -276,6 +315,11 @@ function ChatPage() {
     }
   };
 
+  // Force scroll to bottom button handler
+  const handleForceScrollToBottom = () => {
+    scrollToBottom(true);
+  };
+
   // Combine actual messages with optimistic messages
   const allMessages = [
     ...messages,
@@ -290,7 +334,6 @@ function ChatPage() {
     ),
   ];
 
-  // Show empty state when no chat is selected
   if (!chatId) {
     return (
       <div className="flex flex-col h-full">
@@ -330,7 +373,6 @@ function ChatPage() {
     );
   }
 
-  // Show loading state
   if (isChatLoading || !chat) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -348,12 +390,10 @@ function ChatPage() {
         overflow: "hidden",
       }}
     >
-      {/* Chat Header - Fixed height */}
       <div style={{ flexShrink: 0 }}>
         <ChatHeader chat={chat} user={user} onBack={() => navigate("/chats")} />
       </div>
 
-      {/* Messages - Scrollable area */}
       <div
         ref={messageListContainerRef}
         style={{
@@ -370,10 +410,32 @@ function ChatPage() {
           loadMoreMessages={loadMoreMessages}
           hasMoreMessages={hasMoreMessages}
           isLoadingMore={isLoadingMore}
+          onScrollToBottomRequest={handleForceScrollToBottom}
         />
+
+        {messages.length > 10 && (
+          <button
+            className="absolute bottom-4 right-4 bg-primary text-primary-foreground rounded-full p-2 shadow-md hover:bg-primary/90 transition-opacity opacity-70 hover:opacity-100"
+            onClick={handleForceScrollToBottom}
+            aria-label="Scroll to bottom"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 19V5M5 12l7 7 7-7" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* Chat Input - Fixed height */}
       <div style={{ flexShrink: 0 }}>
         <ChatInput
           message={message}

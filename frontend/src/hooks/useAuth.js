@@ -60,7 +60,7 @@ export function useAuth() {
       setIsAuthenticated(true);
       initializeSocket(data.token);
       toast.success(data.message || "Registration successful");
-      navigate("/");
+      navigate("/chats");
     },
     onError: (error) => {
       toast.error(error.response?.data?.message || "Registration failed");

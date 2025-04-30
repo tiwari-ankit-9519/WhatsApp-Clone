@@ -8,6 +8,9 @@ const Register = lazy(() => import("./pages/auth/Register"));
 const ChatPage = lazy(() => import("./pages/chat/ChatPage"));
 const ChatInfo = lazy(() => import("./pages/chat/ChatInfo"));
 const ContactsPage = lazy(() => import("./pages/contacts/ContactsPage"));
+const FindContactsPage = lazy(() =>
+  import("./pages/contacts/FindContactsPage")
+);
 const ProfilePage = lazy(() => import("./pages/profile/ProfilePage"));
 const SettingsPage = lazy(() => import("./pages/settings/SettingsPage"));
 const MainLayout = lazy(() => import("./components/layout/MainLayout"));
@@ -81,6 +84,7 @@ const AppRoutes = () => {
           <Route path="chats/:chatId" element={<ChatPage />} />
           <Route path="chats/:chatId/info" element={<ChatInfo />} />
           <Route path="contacts" element={<ContactsPage />} />
+          <Route path="contacts/find" element={<FindContactsPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

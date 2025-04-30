@@ -44,16 +44,14 @@ const RegisterForm = () => {
   });
 
   const onSubmit = (data) => {
-    const formData = new FormData();
-    formData.append("name", data.name);
-    formData.append("email", data.email);
-    formData.append("password", data.password);
+    const payload = {
+      name: data.name,
+      email: data.email,
+      password: data.password,
+      profilePic,
+    };
 
-    if (profilePic) {
-      formData.append("profilePic", profilePic);
-    }
-
-    registerUser(formData);
+    registerUser(payload);
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
